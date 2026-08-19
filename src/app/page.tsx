@@ -23,7 +23,13 @@ export default async function HomePage() {
   const headerList = await headers();
   const host = headerList.get("host")?.split(":")[0] ?? "";
   const platformDomain = (process.env.NEXT_PUBLIC_PLATFORM_DOMAIN ?? "localhost").split(":")[0];
-  const isPlatformHost = !host || host === "localhost" || host === "127.0.0.1" || host === platformDomain;
+  const isPlatformHost =
+    !host ||
+    host === "localhost" ||
+    host === "https://dmenu2.netlify.app/" ||
+    host === "dmenu2.netlify.app" ||
+    host === "127.0.0.1" ||
+    host === platformDomain;
 
   if (!isPlatformHost) {
     try {
