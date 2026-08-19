@@ -25,6 +25,11 @@ type PaymentBreakdownPoint = {
   amount: number;
 };
 
+export type DateRange = {
+  from: string;
+  to: string;
+};
+
 export function AccountingMetric({ title, value, tone = "slate" }: { title: string; value: string; tone?: "slate" | "green" | "red" }) {
   const styles = {
     slate: "border-slate-200 bg-white text-slate-950",
@@ -52,7 +57,7 @@ export function CashMovementChart({ data, currency }: { data: CashSeriesPoint[];
         <span className="inline-flex items-center gap-1 text-emerald-700"><span className="h-2 w-2 rounded-full bg-emerald-500" /> دخول</span>
         <span className="inline-flex items-center gap-1 text-red-700"><span className="h-2 w-2 rounded-full bg-red-500" /> خروج</span>
       </div>
-      <div className="grid grid-cols-7 gap-2">
+      <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(72px, 1fr))" }}>
         {data.map((point) => {
           const inHeight = Math.max(8, Math.round((point.cashIn / maxAmount) * 120));
           const outHeight = Math.max(8, Math.round((point.cashOut / maxAmount) * 120));
@@ -96,22 +101,53 @@ export function PaymentMethodChart({ data, currency }: { data: PaymentBreakdownP
   );
 }
 
-export function buildCashSeries(movements: CashMovement[]): CashSeriesPoint[] {
-  return Array.from({ length: 7 }, (_, index) => {
-    const date = addDays(new Date(), index - 6);
-    const key = localDateKey(date);
-    const dayMovements = movements.filter((movement) => localDateKey(movement.createdAt) === key);
-    const cashIn = sumAmounts(dayMovements.filter((movement) => movement.type === "IN"));
-    const cashOut = sumAmounts(dayMovements.filter((movement) => movement.type === "OUT"));
+export function buildCashSeries(movements: CashMovement[], range?: DateRange): CashSeriesPoint[] {
+  if (range?.from && range?.to) {
+    const fromDate = parseLocalDate(range.from);
+    const toDate = parseLocalDate(range.to);
+    if (fromDate && toDate && fromDate <= toDate) {
+      const days = daysBetween(fromDate, toDate);
+      if (days <= 31) {
+        return Array.from({ length: days }, (_, index) => buildCashSeriesPoint(movements, addDays(fromDate, index), "day"));
+      }
+      return buildMonthlyCashSeries(movements, fromDate, toDate);
+    }
+  }
 
-    return {
-      key,
-      label: date.toLocaleDateString("ar-SY-u-nu-latn", { weekday: "short", day: "numeric" }),
-      cashIn,
-      cashOut,
-      net: cashIn - cashOut
-    };
+  return Array.from({ length: 7 }, (_, index) => buildCashSeriesPoint(movements, addDays(new Date(), index - 6), "day"));
+}
+
+function buildCashSeriesPoint(movements: CashMovement[], date: Date, mode: "day" | "month"): CashSeriesPoint {
+  const key = mode === "month" ? localMonthKey(date) : localDateKey(date);
+  const matchingMovements = movements.filter((movement) => {
+    const movementKey = mode === "month" ? localMonthKey(movement.createdAt) : localDateKey(movement.createdAt);
+    return movementKey === key;
   });
+  const cashIn = sumAmounts(matchingMovements.filter((movement) => movement.type === "IN"));
+  const cashOut = sumAmounts(matchingMovements.filter((movement) => movement.type === "OUT"));
+
+  return {
+    key,
+    label: mode === "month"
+      ? date.toLocaleDateString("ar-SY-u-nu-latn", { month: "short", year: "numeric" })
+      : date.toLocaleDateString("ar-SY-u-nu-latn", { weekday: "short", day: "numeric" }),
+    cashIn,
+    cashOut,
+    net: cashIn - cashOut
+  };
+}
+
+function buildMonthlyCashSeries(movements: CashMovement[], fromDate: Date, toDate: Date) {
+  const points: CashSeriesPoint[] = [];
+  const cursor = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
+  const end = new Date(toDate.getFullYear(), toDate.getMonth(), 1);
+
+  while (cursor <= end) {
+    points.push(buildCashSeriesPoint(movements, cursor, "month"));
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+
+  return points;
 }
 
 export function buildPaymentBreakdown(payments: OperationalPayment[]): PaymentBreakdownPoint[] {
@@ -136,6 +172,7 @@ export function numberValue(value: number | string | undefined | null) {
 
 export function localDateKey(value: string | number | Date | undefined | null) {
   if (!value) return "";
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -143,10 +180,63 @@ export function localDateKey(value: string | number | Date | undefined | null) {
   return `${date.getFullYear()}-${month}-${day}`;
 }
 
+export function buildCurrentMonthRange(date = new Date()): DateRange {
+  return {
+    from: localDateKey(new Date(date.getFullYear(), date.getMonth(), 1)),
+    to: localDateKey(date)
+  };
+}
+
+export function isWithinDateRange(value: string | number | Date | undefined | null, from: string, to: string) {
+  const key = localDateKey(value);
+  return Boolean(key) && (!from || key >= from) && (!to || key <= to);
+}
+
+export function formatFinancialDate(value: string | number | Date | undefined | null) {
+  const key = localDateKey(value);
+  if (!key) return "-";
+  const date = parseLocalDate(key);
+  return date ? date.toLocaleDateString("ar-SY-u-nu-latn", { year: "numeric", month: "short", day: "numeric" }) : key;
+}
+
+export function dateRangeLabel(range: DateRange) {
+  return `${formatFinancialDate(range.from)} - ${formatFinancialDate(range.to)}`;
+}
+
+export function recordTime(value: string | undefined) {
+  if (!value) return 0;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function addDays(date: Date, days: number) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
   return next;
+}
+
+function parseLocalDate(value: string) {
+  if (!value) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day);
+}
+
+function daysBetween(fromDate: Date, toDate: Date) {
+  const oneDay = 24 * 60 * 60 * 1000;
+  return Math.floor((startOfDay(toDate).getTime() - startOfDay(fromDate).getTime()) / oneDay) + 1;
+}
+
+function startOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function localMonthKey(value: string | number | Date | undefined | null) {
+  if (!value) return "";
+  if (typeof value === "string" && /^\d{4}-\d{2}/.test(value)) return value.slice(0, 7);
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
 export function sortByCreatedAtDesc(first: { createdAt?: string; postedAt?: string }, second: { createdAt?: string; postedAt?: string }) {
@@ -159,7 +249,7 @@ function dateValue(value: string | undefined) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function paymentMethodLabel(method: string) {
+export function paymentMethodLabel(method: string) {
   const labels: Record<string, string> = {
     CASH: "نقدي",
     CARD: "بطاقة",

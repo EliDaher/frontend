@@ -1,0 +1,19 @@
+{
+  "name": "Restaurant Operations",
+  "short_name": "Ops",
+  "description": "Offline-capable restaurant order and table operations.",
+  "start_url": "/owner/operations/orders",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#111827",
+  "dir": "rtl",
+  "lang": "ar",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon"
+    }
+  ]
+}

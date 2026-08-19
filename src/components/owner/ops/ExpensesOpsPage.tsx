@@ -43,11 +43,15 @@ import {
 } from "./OpsShared";
 import {
   accountTypes,
+  buildCurrentMonthRange,
   buildCashSeries,
   buildPaymentBreakdown,
+  dateRangeLabel,
   Filters,
+  formatFinancialDate,
   invoiceStatuses,
   invoiceTypes,
+  isWithinDateRange,
   journalStatusLabel,
   localDateKey,
   nameById,
@@ -55,6 +59,7 @@ import {
   option,
   orderStatuses,
   orderTypes,
+  paymentMethodLabel,
   paymentMethods,
   recipeDraftForMenuItem,
   RowActions,
@@ -71,8 +76,7 @@ import {
 export function ExpensesOpsPage() {
   const state = useOpsPage("expenses");
   const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [dateRange, setDateRange] = useState(buildCurrentMonthRange);
   const [editingId, setEditingId] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState({ category: "", amount: 0, paymentMethod: "CASH", paidAt: "", notes: "" });
@@ -125,9 +129,8 @@ export function ExpensesOpsPage() {
     setFormOpen(true);
   }
   const filtered = expenses.filter((expense) => {
-    const day = (expense.paidAt || expense.createdAt || "").slice(0, 10);
-    return (!from || day >= from) && (!to || day <= to);
-  });
+    return isWithinDateRange(expense.paidAt || expense.createdAt, dateRange.from, dateRange.to);
+  }).sort((first, second) => String(second.paidAt || second.createdAt || "").localeCompare(String(first.paidAt || first.createdAt || "")));
   const total = filtered.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
 
   return (
@@ -141,19 +144,46 @@ export function ExpensesOpsPage() {
         )}
       >
         <div className="mb-4 grid gap-3 sm:grid-cols-2">
-          <Field label="من" type="date" value={from} onChange={setFrom} />
-          <Field label="إلى" type="date" value={to} onChange={setTo} />
+          <Field label="من" type="date" value={dateRange.from} onChange={(from) => setDateRange((current) => ({ ...current, from }))} />
+          <Field label="إلى" type="date" value={dateRange.to} onChange={(to) => setDateRange((current) => ({ ...current, to }))} />
         </div>
-        <div className="grid gap-3">
-          {filtered.length ? filtered.map((expense) => (
-            <article key={expense.id} className="rounded-lg border border-slate-200 p-3">
-              <h3 className="font-black">{expense.category}</h3>
-              <p className="mt-1 text-sm font-bold text-slate-500">{money(expense.amount, state.restaurant?.currency)} ?? {expense.paymentMethod} ?? {(expense.paidAt || expense.createdAt || "").slice(0, 10)}</p>
-              <p className="mt-1 text-sm font-bold text-slate-500">{expense.notes}</p>
-              <RowActions onEdit={() => edit(expense)} onDelete={() => void remove(expense.id)} />
-            </article>
-          )) : <Empty title="لا توجد مصروفات" text="أضف مصروفاً أو غيّر الفترة." />}
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md bg-slate-50 p-3 text-sm font-black">
+          <span>الفترة: {dateRangeLabel(dateRange)}</span>
+          <SecondaryButton onClick={() => setDateRange(buildCurrentMonthRange())}>الشهر الحالي</SecondaryButton>
         </div>
+        {filtered.length ? (
+          <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <table className="min-w-[760px] w-full text-right text-sm">
+              <thead className="bg-slate-50 text-xs font-black text-slate-500">
+                <tr>
+                  <th className="px-3 py-2">التاريخ</th>
+                  <th className="px-3 py-2">الفئة</th>
+                  <th className="px-3 py-2">طريقة الدفع</th>
+                  <th className="px-3 py-2">المبلغ</th>
+                  <th className="px-3 py-2">ملاحظات</th>
+                  <th className="px-3 py-2">إجراءات</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-bold">
+                {filtered.map((expense) => (
+                  <tr key={expense.id}>
+                    <td className="whitespace-nowrap px-3 py-2">{formatFinancialDate(expense.paidAt || expense.createdAt)}</td>
+                    <td className="px-3 py-2 font-black">{expense.category}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-500">{paymentMethodLabel(expense.paymentMethod)}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-red-700">{money(expense.amount, state.restaurant?.currency)}</td>
+                    <td className="px-3 py-2 text-slate-500">{expense.notes || "-"}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex gap-2">
+                        <SecondaryButton onClick={() => edit(expense)}>تعديل</SecondaryButton>
+                        <DangerButton onClick={() => void remove(expense.id)}>حذف</DangerButton>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : <Empty title="لا توجد مصروفات" text="أضف مصروفاً أو غيّر الفترة." />}
       </Panel>
 
       <PopupForm open={formOpen} onClose={closeForm} title={editingId ? "تعديل مصروف" : "إضافة مصروف"} maxWidth="md">

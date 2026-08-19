@@ -1,0 +1,283 @@
+ ⨯ Failed to generate static paths for /[restaurantSlug]:
+[Error: Cannot find module './vendor-chunks/next.js'
+Require stack:
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\.next\server\webpack-runtime.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\.next\server\app\[restaurantSlug]\page.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\server\require.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\server\load-components.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\build\utils.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\server\dev\static-paths-worker.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\compiled\jest-worker\processChild.js] {
+  type: 'Error',
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array]
+}
+ ⨯ [Error: Cannot find module './vendor-chunks/next.js'
+Require stack:
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\.next\server\webpack-runtime.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\.next\server\app\[restaurantSlug]\page.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\server\require.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\server\load-components.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\build\utils.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\server\dev\static-paths-worker.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\compiled\jest-worker\processChild.js] {
+  type: 'Error',
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array],
+  page: '/favicon.ico'
+}
+ ⨯ [Error: Cannot find module './vendor-chunks/next.js'
+Require stack:
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\.next\server\webpack-runtime.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\.next\server\app\[restaurantSlug]\page.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\server\require.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\server\load-components.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\build\utils.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\server\dev\static-paths-worker.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\compiled\jest-worker\processChild.js] {
+  type: 'Error',
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array],
+  page: '/favicon.ico'
+}
+ ⨯ [Error: Cannot find module './vendor-chunks/next.js'
+Require stack:
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\.next\server\webpack-runtime.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\.next\server\app\[restaurantSlug]\page.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\server\require.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\server\load-components.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\build\utils.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\server\dev\static-paths-worker.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\compiled\jest-worker\processChild.js] {
+  type: 'Error',
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array],
+  page: '/owner'
+}
+ ⨯ [Error: Cannot find module './vendor-chunks/lucide-react.js'
+Require stack:
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\.next\server\webpack-runtime.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\.next\server\app\[restaurantSlug]\page.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\server\require.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\server\load-components.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\build\utils.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\server\dev\static-paths-worker.js
+- C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\node_modules\next\dist\compiled\jest-worker\processChild.js] {
+  type: 'Error',
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array],
+  page: '/favicon.ico'
+}
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ ⨯ [TypeError: controller[kState].transformAlgorithm is not a function] {
+  digest: '2737502483'
+}
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: EPERM: operation not permitted, rename 'C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\.next\cache\webpack\server-development\0.pack.gz_' -> 'C:\Users\eeli5\Desktop\myProjects\Resturants\frontend\.next\cache\webpack\server-development\0.pack.gz'
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js
+ ⨯ ./node_modules/next/dist/lib/require-instrumentation-client.js:11:1
+Module not found: Can't resolve 'private-next-instrumentation-client'
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./node_modules/next/dist/client/page-bootstrap.js
+./node_modules/next/dist/client/next-dev.js

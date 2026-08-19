@@ -43,11 +43,15 @@ import {
 } from "./OpsShared";
 import {
   accountTypes,
+  buildCurrentMonthRange,
   buildCashSeries,
   buildPaymentBreakdown,
+  dateRangeLabel,
   Filters,
+  formatFinancialDate,
   invoiceStatuses,
   invoiceTypes,
+  isWithinDateRange,
   journalStatusLabel,
   localDateKey,
   nameById,
@@ -55,6 +59,7 @@ import {
   option,
   orderStatuses,
   orderTypes,
+  paymentMethodLabel,
   paymentMethods,
   recipeDraftForMenuItem,
   RowActions,
@@ -73,6 +78,7 @@ export function InvoicesOpsPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [status, setStatus] = useState("ALL");
+  const [dateRange, setDateRange] = useState(buildCurrentMonthRange);
   const [editingId, setEditingId] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState({ type: "SALE", status: "UNPAID", orderId: "", supplierId: "", itemName: "", quantity: 1, unitPrice: 0, discount: 0, tax: 0, serviceCharge: 0, paidAmount: 0, paymentMethod: "CASH", dueDate: "", notes: "" });
@@ -144,7 +150,13 @@ export function InvoicesOpsPage() {
     setForm({ ...form, type: invoice.type, status: invoice.status, orderId: invoice.orderId, supplierId: invoice.supplierId, itemName: invoice.items[0]?.name || "", quantity: invoice.items[0]?.quantity || 1, unitPrice: invoice.items[0]?.unitPrice || 0, discount: invoice.discount, tax: invoice.tax, serviceCharge: invoice.serviceCharge, paidAmount: invoice.paidAmount, paymentMethod: invoice.paymentMethod, dueDate: invoice.dueDate, notes: invoice.notes });
     setFormOpen(true);
   }
-  const filtered = invoices.filter((invoice) => status === "ALL" || invoice.status === status);
+  const filtered = invoices
+    .filter((invoice) => status === "ALL" || invoice.status === status)
+    .filter((invoice) => isWithinDateRange(invoice.createdAt || invoice.dueDate, dateRange.from, dateRange.to))
+    .sort((first, second) => String(second.createdAt || second.dueDate || "").localeCompare(String(first.createdAt || first.dueDate || "")));
+  const invoiceTotal = filtered.reduce((sum, invoice) => sum + numberValue(invoice.total), 0);
+  const paidTotal = filtered.reduce((sum, invoice) => sum + numberValue(invoice.paidAmount), 0);
+  const remainingTotal = filtered.reduce((sum, invoice) => sum + numberValue(invoice.remainingAmount), 0);
 
   return (
     <OpsShell title="الفواتير" eyebrow="المحاسبة" module="accounting" state={state} onRefresh={() => void Promise.all([state.loadRestaurant(), load()])}>
@@ -157,19 +169,62 @@ export function InvoicesOpsPage() {
         )}
       >
         <Filters query="" setQuery={() => undefined} status={status} setStatus={setStatus} statuses={["ALL", ...invoiceStatuses]} />
-        <div className="mt-4 grid gap-3">
-          {filtered.length ? filtered.map((invoice) => (
-            <article key={invoice.id} className="rounded-lg border border-slate-200 p-3">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 className="font-black">{invoice.type} ?? {invoice.items.map((item) => item.name).join("?? ")}</h3>
-                  <p className="mt-1 text-sm font-bold text-slate-500">الإجمالي {money(invoice.total, state.restaurant?.currency)} · المتبقي {money(invoice.remainingAmount, state.restaurant?.currency)}</p>
-                </div>
-                <StatusBadge label={invoice.status} tone={invoice.status === "PAID" ? "green" : invoice.status === "VOID" ? "red" : "amber"} />
-              </div>
-              <RowActions onEdit={() => edit(invoice)} onDelete={() => void remove(invoice.id)} />
-            </article>
-          )) : <Empty title="لا توجد فواتير" text="أنشئ فاتورة جديدة." />}
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <Field label="من" type="date" value={dateRange.from} onChange={(from) => setDateRange((current) => ({ ...current, from }))} />
+          <Field label="إلى" type="date" value={dateRange.to} onChange={(to) => setDateRange((current) => ({ ...current, to }))} />
+        </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md bg-slate-50 p-3 text-sm font-black">
+          <span>الفترة: {dateRangeLabel(dateRange)}</span>
+          <SecondaryButton onClick={() => setDateRange(buildCurrentMonthRange())}>الشهر الحالي</SecondaryButton>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <AccountingMetric title="عدد الفواتير" value={formatInteger(filtered.length)} />
+          <AccountingMetric title="الإجمالي" value={money(invoiceTotal, state.restaurant?.currency)} />
+          <AccountingMetric title="المدفوع" value={money(paidTotal, state.restaurant?.currency)} tone="green" />
+          <AccountingMetric title="المتبقي" value={money(remainingTotal, state.restaurant?.currency)} tone={remainingTotal > 0 ? "red" : "green"} />
+        </div>
+        <div className="mt-4">
+          {filtered.length ? (
+            <div className="overflow-x-auto rounded-lg border border-slate-200">
+              <table className="min-w-[920px] w-full text-right text-sm">
+                <thead className="bg-slate-50 text-xs font-black text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2">التاريخ</th>
+                    <th className="px-3 py-2">النوع</th>
+                    <th className="px-3 py-2">البنود</th>
+                    <th className="px-3 py-2">طريقة الدفع</th>
+                    <th className="px-3 py-2">الإجمالي</th>
+                    <th className="px-3 py-2">المدفوع</th>
+                    <th className="px-3 py-2">المتبقي</th>
+                    <th className="px-3 py-2">الحالة</th>
+                    <th className="px-3 py-2">إجراءات</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-bold">
+                  {filtered.map((invoice) => (
+                    <tr key={invoice.id}>
+                      <td className="whitespace-nowrap px-3 py-2">{formatFinancialDate(invoice.createdAt || invoice.dueDate)}</td>
+                      <td className="whitespace-nowrap px-3 py-2">{invoice.type}</td>
+                      <td className="px-3 py-2 font-black">{invoice.items.map((item) => item.name).join("، ") || "-"}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-slate-500">{paymentMethodLabel(invoice.paymentMethod)}</td>
+                      <td className="whitespace-nowrap px-3 py-2">{money(invoice.total, state.restaurant?.currency)}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-emerald-700">{money(invoice.paidAmount, state.restaurant?.currency)}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-red-700">{money(invoice.remainingAmount, state.restaurant?.currency)}</td>
+                      <td className="whitespace-nowrap px-3 py-2">
+                        <StatusBadge label={invoice.status} tone={invoice.status === "PAID" ? "green" : invoice.status === "VOID" ? "red" : "amber"} />
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex gap-2">
+                          <SecondaryButton onClick={() => edit(invoice)}>تعديل</SecondaryButton>
+                          <DangerButton onClick={() => void remove(invoice.id)}>حذف</DangerButton>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : <Empty title="لا توجد فواتير" text="أنشئ فاتورة جديدة أو غيّر الفترة." />}
         </div>
       </Panel>
 

@@ -32,7 +32,7 @@ import type { InventoryItem, RecipeDraftLine, RecipeIngredient } from "@/types/o
 type TabId = "items" | "design" | "details" | "categories";
 type RestaurantForm = Pick<
   Restaurant,
-  "slug" | "name" | "logo" | "coverImage" | "description" | "phone" | "address" | "currency" | "isActive" | "template" | "theme"
+  "slug" | "name" | "logo" | "coverImage" | "description" | "phone" | "address" | "currency" | "receiptRestaurantName" | "vatNumber" | "receiptLocation" | "receiptPrinterIp" | "receiptPrinterPort" | "isActive" | "template" | "theme"
 >;
 type CategoryForm = Omit<Category, "id">;
 type ItemForm = Omit<MenuItem, "id" | "createdAt" | "updatedAt">;
@@ -55,6 +55,11 @@ const emptyRestaurant: RestaurantForm = {
   phone: "",
   address: "",
   currency: "SYP",
+  receiptRestaurantName: "",
+  vatNumber: "105200001740",
+  receiptLocation: "",
+  receiptPrinterIp: "",
+  receiptPrinterPort: 9100,
   isActive: true,
   template: "classic",
   theme: defaultTheme
@@ -206,6 +211,11 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
           phone: form.phone,
           address: form.address,
           currency: form.currency,
+          receiptRestaurantName: form.receiptRestaurantName,
+          vatNumber: form.vatNumber,
+          receiptLocation: form.receiptLocation,
+          receiptPrinterIp: form.receiptPrinterIp,
+          receiptPrinterPort: form.receiptPrinterPort,
           isActive: form.isActive
         })
       });
@@ -528,6 +538,11 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
               <Field label="الهاتف" value={form.phone} onChange={(phone) => setForm({ ...form, phone })} />
               <Field label="العنوان" value={form.address} onChange={(address) => setForm({ ...form, address })} />
               <Field label="العملة" value={form.currency} onChange={(currency) => setForm({ ...form, currency })} />
+              <Field label="اسم المطعم على الفاتورة" value={form.receiptRestaurantName ?? ""} onChange={(receiptRestaurantName) => setForm({ ...form, receiptRestaurantName })} />
+              <Field label="VAT" value={form.vatNumber ?? ""} onChange={(vatNumber) => setForm({ ...form, vatNumber })} />
+              <Field label="موقع الإيصال" value={form.receiptLocation ?? ""} onChange={(receiptLocation) => setForm({ ...form, receiptLocation })} />
+              <Field label="IP الطابعة" value={form.receiptPrinterIp ?? ""} onChange={(receiptPrinterIp) => setForm({ ...form, receiptPrinterIp })} />
+              <NumberField label="منفذ الطابعة" value={form.receiptPrinterPort ?? 9100} onChange={(receiptPrinterPort) => setForm({ ...form, receiptPrinterPort })} />
               <ReadOnlyField label="الباقة" value={planLabels[restaurant.plan]} />
               <div className="md:col-span-2">
                 <TextArea label="الوصف" value={form.description} onChange={(description) => setForm({ ...form, description })} />
@@ -789,6 +804,11 @@ function toRestaurantForm(restaurant: Restaurant): RestaurantForm {
     phone: restaurant.phone,
     address: restaurant.address,
     currency: restaurant.currency,
+    receiptRestaurantName: restaurant.receiptRestaurantName ?? "",
+    vatNumber: restaurant.vatNumber ?? "105200001740",
+    receiptLocation: restaurant.receiptLocation ?? "",
+    receiptPrinterIp: restaurant.receiptPrinterIp ?? "",
+    receiptPrinterPort: restaurant.receiptPrinterPort ?? 9100,
     isActive: restaurant.isActive,
     template: normalizeTemplate(restaurant.plan, restaurant.template),
     theme: restaurant.theme ?? defaultTheme
@@ -860,6 +880,11 @@ function AccurateMenuPreview({
     phone: form.phone,
     address: form.address,
     currency: form.currency || "SYP",
+    receiptRestaurantName: form.receiptRestaurantName ?? "",
+    vatNumber: form.vatNumber ?? "105200001740",
+    receiptLocation: form.receiptLocation ?? "",
+    receiptPrinterIp: form.receiptPrinterIp ?? "",
+    receiptPrinterPort: form.receiptPrinterPort ?? 9100,
     isActive: form.isActive,
     plan,
     template: form.template,

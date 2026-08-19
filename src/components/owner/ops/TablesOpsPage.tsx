@@ -2,46 +2,70 @@
 
 import Link from "next/link";
 import type { FormEvent } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PopupForm } from "@/components/shared";
-import { adminRequest } from "@/lib/api";
+import { useLiveQuery } from "@/offline/hooks/useLiveQuery";
+import { deleteLocalTable, hydrateTables, listLocalTables, saveLocalTable, type OfflineContext } from "@/offline/repositories/tables";
 import type { OpsTable } from "@/types/ops";
 import { DangerButton, Empty, Field, OpsShell, Panel, PrimaryButton, SecondaryButton, SelectField, StatusBadge, useOpsPage } from "./OpsShared";
 import { Filters, option, run, tableStatuses } from "./OpsPageShared";
 
 export function TablesOpsPage() {
   const state = useOpsPage("tables");
-  const [tables, setTables] = useState<OpsTable[]>([]);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("ALL");
   const [editingId, setEditingId] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState({ name: "", area: "Main", capacity: 4, status: "AVAILABLE", currentOrderId: "", qrCode: "" });
+  const tenantId = state.restaurant?.id ?? "";
+  const offlineContext = useMemo<OfflineContext | null>(() => {
+    if (!state.token || !tenantId) return null;
+    return {
+      token: state.token,
+      tenantId,
+      userId: state.restaurant?.ownerUserId ?? "owner"
+    };
+  }, [state.restaurant?.ownerUserId, state.token, tenantId]);
+  const { value: tables } = useLiveQuery(() => tenantId ? listLocalTables(tenantId) : Promise.resolve([]), [] as OpsTable[], [tenantId]);
 
   useEffect(() => {
-    if (state.token && state.modules?.tables) void load();
-  }, [state.token, state.modules?.tables]);
+    if (offlineContext && state.modules?.tables) void load();
+  }, [offlineContext, state.modules?.tables]);
 
   async function load() {
-    setTables(await adminRequest<OpsTable[]>("/api/owner/ops/tables", state.token));
+    if (!offlineContext) return;
+    await hydrateTables(offlineContext);
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const path = editingId ? `/api/owner/ops/tables/${editingId}` : "/api/owner/ops/tables";
+    if (!offlineContext) {
+      state.setMessage("تعذر تحديد المطعم الحالي.");
+      return;
+    }
     await run(state, async () => {
-      await adminRequest(path, state.token, { method: editingId ? "PATCH" : "POST", body: JSON.stringify(form) });
+      await saveLocalTable(offlineContext, {
+        id: editingId || undefined,
+        name: form.name,
+        area: form.area,
+        capacity: form.capacity,
+        status: form.status as OpsTable["status"],
+        currentOrderId: form.currentOrderId,
+        qrCode: form.qrCode
+      });
       reset();
       setFormOpen(false);
-      await load();
     });
   }
 
   async function remove(id: string) {
     if (!window.confirm("حذف الطاولة؟")) return;
+    if (!offlineContext) {
+      state.setMessage("تعذر تحديد المطعم الحالي.");
+      return;
+    }
     await run(state, async () => {
-      await adminRequest(`/api/owner/ops/tables/${id}`, state.token, { method: "DELETE" });
-      await load();
+      await deleteLocalTable(offlineContext, id);
     });
   }
 

@@ -111,11 +111,11 @@ export function OwnerDashboardOverview() {
                 />
               </ProPanel>
               <ProPanel title="حالة الطاولات">
-                <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                <div className="grid grid-cols-6 gap-2 md:grid-cols-12">
                   {tables.slice(0, 12).map((table) => (
                     <Link key={table.id} href="/owner/operations/tables" className={`rounded-md border p-3 text-sm font-black ${table.status === "AVAILABLE" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : table.status === "OCCUPIED" ? "border-amber-200 bg-amber-50 text-amber-900" : "border-slate-200 bg-slate-50 text-slate-600"}`}>
                       <span className="block truncate">{table.name}</span>
-                      <span className="mt-1 block text-xs opacity-70">{table.status}</span>
+                      {/* <span className="mt-1 block text-xs opacity-70">{table.status}</span> */}
                     </Link>
                   ))}
                 </div>

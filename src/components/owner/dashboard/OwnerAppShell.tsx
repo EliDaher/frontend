@@ -18,6 +18,7 @@ import {
   Table2,
   Utensils
 } from "lucide-react";
+import { SyncStatusIndicator } from "@/components/owner/SyncStatusIndicator";
 import type { Restaurant, RestaurantModule, RestaurantModules } from "@/types/menu";
 
 type NavItem = {
@@ -106,6 +107,7 @@ export function OwnerAppShell({
               <h1 className="truncate text-xl font-black">{title}</h1>
             </div>
             <div className="flex items-center gap-2">
+              <SyncStatusIndicator tenantId={restaurant?.id} />
               {restaurant ? (
                 <Link href={`/${restaurant.slug}`} target="_blank" className="hidden h-10 items-center rounded-md border border-slate-200 bg-white px-3 text-sm font-black text-slate-700 sm:inline-flex">
                   عرض المنيو

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { PopupForm } from "@/components/shared";
 import { adminRequest } from "@/lib/api";
 import { formatInteger } from "@/lib/format";
@@ -43,11 +43,15 @@ import {
 } from "./OpsShared";
 import {
   accountTypes,
+  buildCurrentMonthRange,
   buildCashSeries,
   buildPaymentBreakdown,
+  dateRangeLabel,
   Filters,
+  formatFinancialDate,
   invoiceStatuses,
   invoiceTypes,
+  isWithinDateRange,
   journalStatusLabel,
   localDateKey,
   nameById,
@@ -55,9 +59,11 @@ import {
   option,
   orderStatuses,
   orderTypes,
+  paymentMethodLabel,
   paymentMethods,
   recipeDraftForMenuItem,
   RowActions,
+  recordTime,
   run,
   SimpleCrudLayout,
   sortByCreatedAtDesc,
@@ -68,14 +74,28 @@ import {
   PaymentMethodChart
 } from "./OpsPageShared";
 
+type FinancialRecordRow = {
+  id: string;
+  date: string;
+  type: string;
+  title: string;
+  method: string;
+  amountIn: number;
+  amountOut: number;
+  note: string;
+  source: string;
+};
+
 export function AccountingOpsPage() {
   const state = useOpsPage("accounting");
-  const [tab, setTab] = useState<"overview" | "accounts" | "journal" | "cash">("overview");
+  const [tab, setTab] = useState<"overview" | "records" | "accounts" | "journal" | "cash">("overview");
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [registers, setRegisters] = useState<CashRegister[]>([]);
   const [movements, setMovements] = useState<CashMovement[]>([]);
   const [payments, setPayments] = useState<OperationalPayment[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [dateRange, setDateRange] = useState(buildCurrentMonthRange);
   const [accountForm, setAccountForm] = useState({ code: "", name: "", type: "ASSET", isActive: true });
   const [entryForm, setEntryForm] = useState({ debitAccountId: "", creditAccountId: "", amount: 0, memo: "" });
   const [cashForm, setCashForm] = useState({ name: "", openingBalance: 0 });
@@ -88,18 +108,20 @@ export function AccountingOpsPage() {
   }, [state.token, state.modules?.accounting]);
 
   async function load() {
-    const [nextAccounts, nextEntries, nextRegisters, nextMovements, nextPayments] = await Promise.all([
+    const [nextAccounts, nextEntries, nextRegisters, nextMovements, nextPayments, nextExpenses] = await Promise.all([
       adminRequest<Account[]>("/api/owner/ops/accounts", state.token),
       adminRequest<JournalEntry[]>("/api/owner/ops/journal-entries", state.token),
       adminRequest<CashRegister[]>("/api/owner/ops/cash/registers", state.token),
       adminRequest<CashMovement[]>("/api/owner/ops/cash/movements", state.token),
-      adminRequest<OperationalPayment[]>("/api/owner/ops/payments", state.token).catch(() => [])
+      adminRequest<OperationalPayment[]>("/api/owner/ops/payments", state.token).catch(() => []),
+      adminRequest<Expense[]>("/api/owner/ops/expenses", state.token).catch(() => [])
     ]);
     setAccounts(nextAccounts);
     setEntries(nextEntries);
     setRegisters(nextRegisters);
     setMovements(nextMovements);
     setPayments(nextPayments);
+    setExpenses(nextExpenses);
     setEntryForm((current) => ({ ...current, debitAccountId: current.debitAccountId || nextAccounts[0]?.id || "", creditAccountId: current.creditAccountId || nextAccounts[1]?.id || "" }));
     setMovementForm((current) => ({ ...current, cashRegisterId: current.cashRegisterId || nextRegisters[0]?.id || "" }));
   }
@@ -161,44 +183,117 @@ export function AccountingOpsPage() {
   const totalDebit = entryForm.amount;
   const totalCredit = entryForm.amount;
   const currency = state.restaurant?.currency;
-  const todayKey = localDateKey(new Date());
-  const todaysMovements = movements.filter((movement) => localDateKey(movement.createdAt) === todayKey);
-  const todayCashIn = sumAmounts(todaysMovements.filter((movement) => movement.type === "IN"));
-  const todayCashOut = sumAmounts(todaysMovements.filter((movement) => movement.type === "OUT"));
-  const todayBalance = todayCashIn - todayCashOut;
+  const rangedPayments = payments.filter((payment) => isWithinDateRange(payment.paidAt || payment.createdAt, dateRange.from, dateRange.to));
+  const rangedExpenses = expenses.filter((expense) => isWithinDateRange(expense.paidAt || expense.createdAt, dateRange.from, dateRange.to));
+  const rangedMovements = movements.filter((movement) => isWithinDateRange(movement.createdAt, dateRange.from, dateRange.to));
+  const rangedEntries = entries.filter((entry) => isWithinDateRange(entry.postedAt || entry.createdAt, dateRange.from, dateRange.to));
+  const receiptsTotal = sumAmounts(rangedPayments);
+  const expensesTotal = sumAmounts(rangedExpenses);
+  const netReceipts = receiptsTotal - expensesTotal;
+  const periodCashIn = sumAmounts(rangedMovements.filter((movement) => movement.type === "IN"));
+  const periodCashOut = sumAmounts(rangedMovements.filter((movement) => movement.type === "OUT"));
   const totalCashBalance = registers.reduce((sum, register) => sum + numberValue(register.currentBalance), 0);
-  const cashSeries = buildCashSeries(movements);
-  const paymentBreakdown = buildPaymentBreakdown(payments);
-  const recentMovements = [...movements].sort(sortByCreatedAtDesc).slice(0, 5);
-  const recentEntries = [...entries].sort(sortByCreatedAtDesc).slice(0, 5);
+  const cashSeries = buildCashSeries(rangedMovements, dateRange);
+  const paymentBreakdown = buildPaymentBreakdown(rangedPayments);
+  const recentMovements = [...rangedMovements].sort(sortByCreatedAtDesc).slice(0, 5);
+  const recentEntries = [...rangedEntries].sort(sortByCreatedAtDesc).slice(0, 5);
+  const totalPeriodRecords = rangedPayments.length + rangedExpenses.length + rangedMovements.length + rangedEntries.length;
+  const financialRecords = useMemo<FinancialRecordRow[]>(() => {
+    const paymentRows = rangedPayments.map((payment) => ({
+      id: `payment-${payment.id}`,
+      date: payment.paidAt || payment.createdAt || "",
+      type: "مقبوضات",
+      title: payment.orderId ? `طلب ${payment.orderId}` : payment.invoiceId ? `فاتورة ${payment.invoiceId}` : "دفعة",
+      method: paymentMethodLabel(payment.method),
+      amountIn: numberValue(payment.amount),
+      amountOut: 0,
+      note: payment.note,
+      source: payment.type
+    }));
+    const expenseRows = rangedExpenses.map((expense) => ({
+      id: `expense-${expense.id}`,
+      date: expense.paidAt || expense.createdAt || "",
+      type: "مصروفات",
+      title: expense.category,
+      method: paymentMethodLabel(expense.paymentMethod),
+      amountIn: 0,
+      amountOut: numberValue(expense.amount),
+      note: expense.notes,
+      source: "EXPENSE"
+    }));
+    const movementRows = rangedMovements.map((movement) => ({
+      id: `movement-${movement.id}`,
+      date: movement.createdAt || "",
+      type: movement.type === "IN" ? "دخول صندوق" : "خروج صندوق",
+      title: movement.referenceType || "حركة صندوق",
+      method: nameById(registers, movement.cashRegisterId),
+      amountIn: movement.type === "IN" ? numberValue(movement.amount) : 0,
+      amountOut: movement.type === "OUT" ? numberValue(movement.amount) : 0,
+      note: movement.note,
+      source: movement.referenceId
+    }));
+    const journalRows = rangedEntries.map((entry) => {
+      const debit = entry.lines.reduce((sum, line) => sum + numberValue(line.debit), 0);
+      const credit = entry.lines.reduce((sum, line) => sum + numberValue(line.credit), 0);
+      return {
+        id: `journal-${entry.id}`,
+        date: entry.postedAt || entry.createdAt || "",
+        type: "قيد محاسبي",
+        title: entry.memo || entry.referenceType,
+        method: journalStatusLabel(entry.status),
+        amountIn: debit,
+        amountOut: credit,
+        note: `${formatInteger(entry.lines.length)} سطور`,
+        source: entry.referenceId
+      };
+    });
+
+    return [...paymentRows, ...expenseRows, ...movementRows, ...journalRows].sort((first, second) => recordTime(second.date) - recordTime(first.date));
+  }, [rangedPayments, rangedExpenses, rangedMovements, rangedEntries, registers]);
 
   return (
     <OpsShell title="المحاسبة" eyebrow="الحسابات والقيود والصندوق" module="accounting" state={state} onRefresh={() => void Promise.all([state.loadRestaurant(), load()])}>
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <AccountingMetric title="رصيد اليوم" value={money(todayBalance, currency)} tone={todayBalance >= 0 ? "green" : "red"} />
+      <Panel
+        title={`الفترة المختارة · ${dateRangeLabel(dateRange)}`}
+        action={<SecondaryButton onClick={() => setDateRange(buildCurrentMonthRange())}>الشهر الحالي</SecondaryButton>}
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="من" type="date" value={dateRange.from} onChange={(from) => setDateRange((current) => ({ ...current, from }))} />
+          <Field label="إلى" type="date" value={dateRange.to} onChange={(to) => setDateRange((current) => ({ ...current, to }))} />
+        </div>
+      </Panel>
+
+      <div className="my-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        <AccountingMetric title="المقبوضات" value={money(receiptsTotal, currency)} tone="green" />
+        <AccountingMetric title="المصروفات" value={money(expensesTotal, currency)} tone="red" />
+        <AccountingMetric title="صافي المقبوضات" value={money(netReceipts, currency)} tone={netReceipts >= 0 ? "green" : "red"} />
+        <AccountingMetric title="دخول الصندوق" value={money(periodCashIn, currency)} tone="green" />
+        <AccountingMetric title="خروج الصندوق" value={money(periodCashOut, currency)} tone="red" />
+        <AccountingMetric title="السجلات" value={formatInteger(totalPeriodRecords)} />
+      </div>
+
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-2">
         <AccountingMetric title="إجمالي الصناديق" value={money(totalCashBalance, currency)} />
-        <AccountingMetric title="دخول اليوم" value={money(todayCashIn, currency)} tone="green" />
-        <AccountingMetric title="خروج اليوم" value={money(todayCashOut, currency)} tone="red" />
-        <AccountingMetric title="القيود" value={formatInteger(entries.length)} />
+        <AccountingMetric title="إجمالي القيود" value={formatInteger(entries.length)} />
       </div>
 
       <div className="mb-4 flex gap-2 overflow-x-auto">
-        {(["overview", "accounts", "journal", "cash"] as const).map((item) => (
+        {(["overview", "records", "accounts", "journal", "cash"] as const).map((item) => (
           <button key={item} onClick={() => setTab(item)} className={`rounded-md px-4 py-2 text-sm font-black ${tab === item ? "bg-amber-500 text-white" : "bg-white text-slate-600"}`}>
-            {item === "overview" ? "نظرة عامة" : item === "accounts" ? "الحسابات" : item === "journal" ? "القيود" : "الصندوق"}
+            {item === "overview" ? "نظرة عامة" : item === "records" ? "كل السجلات" : item === "accounts" ? "الحسابات" : item === "journal" ? "القيود" : "الصندوق"}
           </button>
         ))}
       </div>
 
       {tab === "overview" ? (
         <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-          <Panel title="حركة النقد آخر 7 أيام">
+          <Panel title="حركة النقد في الفترة">
             <CashMovementChart data={cashSeries} currency={currency} />
           </Panel>
-          <Panel title="وسائل الدفع">
+          <Panel title="وسائل الدفع في الفترة">
             <PaymentMethodChart data={paymentBreakdown} currency={currency} />
           </Panel>
-          <Panel title="آخر الحركات النقدية">
+          <Panel title="آخر الحركات النقدية في الفترة">
             <div className="grid gap-2">
               {recentMovements.length ? recentMovements.map((movement) => (
                 <div key={movement.id} className="flex items-center justify-between gap-3 rounded-md bg-slate-50 p-2 text-sm font-bold">
@@ -211,7 +306,7 @@ export function AccountingOpsPage() {
               )) : <Empty title="لا توجد حركات" text="ستظهر الحركات النقدية الأخيرة هنا." />}
             </div>
           </Panel>
-          <Panel title="آخر القيود">
+          <Panel title="آخر القيود في الفترة">
             <div className="grid gap-2">
               {recentEntries.length ? recentEntries.map((entry) => (
                 <div key={entry.id} className="rounded-md bg-slate-50 p-2 text-sm font-bold">
@@ -225,6 +320,43 @@ export function AccountingOpsPage() {
             </div>
           </Panel>
         </div>
+      ) : null}
+
+      {tab === "records" ? (
+        <Panel title="كل السجلات المالية في الفترة">
+          {financialRecords.length ? (
+            <div className="overflow-x-auto rounded-lg border border-slate-200">
+              <table className="min-w-[900px] w-full text-right text-sm">
+                <thead className="bg-slate-50 text-xs font-black text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2">التاريخ</th>
+                    <th className="px-3 py-2">النوع</th>
+                    <th className="px-3 py-2">البيان</th>
+                    <th className="px-3 py-2">الطريقة / الحالة</th>
+                    <th className="px-3 py-2">داخل</th>
+                    <th className="px-3 py-2">خارج</th>
+                    <th className="px-3 py-2">المرجع</th>
+                    <th className="px-3 py-2">ملاحظة</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-bold">
+                  {financialRecords.map((record) => (
+                    <tr key={record.id}>
+                      <td className="whitespace-nowrap px-3 py-2">{formatFinancialDate(record.date)}</td>
+                      <td className="whitespace-nowrap px-3 py-2">{record.type}</td>
+                      <td className="px-3 py-2">{record.title}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-slate-500">{record.method}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-emerald-700">{record.amountIn ? money(record.amountIn, currency) : "-"}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-red-700">{record.amountOut ? money(record.amountOut, currency) : "-"}</td>
+                      <td className="px-3 py-2 text-slate-500">{record.source || "-"}</td>
+                      <td className="px-3 py-2 text-slate-500">{record.note || "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : <Empty title="لا توجد سجلات" text="غيّر الفترة أو سجّل مدفوعات ومصروفات وحركات صندوق." />}
+        </Panel>
       ) : null}
 
       {tab === "accounts" ? (
@@ -257,7 +389,7 @@ export function AccountingOpsPage() {
           )}
         >
           <div className="grid gap-3">
-            {entries.length ? entries.map((entry) => <p key={entry.id} className="rounded-lg border border-slate-200 p-3 font-bold">{entry.memo || entry.referenceType} · {entry.status} · {entry.lines.length} سطور</p>) : <Empty title="لا توجد قيود" text="أضف قيدًا متوازنًا." />}
+            {rangedEntries.length ? rangedEntries.map((entry) => <p key={entry.id} className="rounded-lg border border-slate-200 p-3 font-bold">{formatFinancialDate(entry.postedAt || entry.createdAt)} · {entry.memo || entry.referenceType} · {journalStatusLabel(entry.status)} · {entry.lines.length} سطور</p>) : <Empty title="لا توجد قيود" text="أضف قيدًا متوازنًا أو غيّر الفترة." />}
           </div>
         </SimpleCrudLayout>
       ) : null}
@@ -283,8 +415,8 @@ export function AccountingOpsPage() {
           >
             <div className="grid gap-2">{registers.map((register) => <p key={register.id} className="rounded-md bg-slate-50 p-2 text-sm font-bold">{register.name} ?? {money(register.currentBalance, state.restaurant?.currency)}</p>)}</div>
           </Panel>
-          <Panel title="الحركات">
-            <div className="grid gap-2">{movements.map((movement) => <p key={movement.id} className="rounded-md bg-slate-50 p-2 text-sm font-bold">{movement.type} ?? {money(movement.amount, state.restaurant?.currency)} ?? {movement.note}</p>)}</div>
+          <Panel title="الحركات في الفترة">
+            <div className="grid gap-2">{rangedMovements.length ? rangedMovements.map((movement) => <p key={movement.id} className="rounded-md bg-slate-50 p-2 text-sm font-bold">{formatFinancialDate(movement.createdAt)} · {movement.type === "IN" ? "دخول" : "خروج"} · {money(movement.amount, state.restaurant?.currency)} · {movement.note}</p>) : <Empty title="لا توجد حركات" text="غيّر الفترة أو سجّل حركة نقدية." />}</div>
           </Panel>
         </div>
       ) : null}

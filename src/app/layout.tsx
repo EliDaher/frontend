@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Cairo } from "next/font/google";
+import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 import "./globals.css";
 
 const cairo = Cairo({
@@ -20,6 +21,7 @@ export const metadata: Metadata = {
   description:
     "منصة SaaS لإطلاق منيو إلكتروني سريع وجميل للمطاعم والكافيهات مع قوالب احترافية، لوحة تحكم، باقات، ورفع صور.",
   applicationName: "منصة المنيو الإلكتروني",
+  manifest: "/manifest.json",
   keywords: [
     "منيو إلكتروني",
     "منيو مطاعم",
@@ -53,7 +55,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="ar" dir="rtl" className={cairo.variable}>
-      <body>{children}</body>
+      <body>
+        <ServiceWorkerRegister />
+        {children}
+      </body>
     </html>
   );
 }

@@ -1,11 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { PopupForm } from "@/components/shared";
-import { adminRequest } from "@/lib/api";
 import { formatInteger } from "@/lib/format";
+import { useLiveQuery } from "@/offline/hooks/useLiveQuery";
+import { cancelLocalOrder, completeLocalOrder, createLocalOrder, getLocalOrder, hydrateOrders, updateLocalOrder, type OrderCreateInput } from "@/offline/repositories/orders";
+import { hydrateReferenceData, listLocalCashRegisters, listLocalCategories, listLocalMenuItems, listLocalRecipeIngredients } from "@/offline/repositories/reference-data";
+import { getLocalTable, hydrateTables, listLocalTables, saveLocalTable, type OfflineContext } from "@/offline/repositories/tables";
 import type { Category, MenuItem } from "@/types/menu";
 import type { CashRegister, OpsOrder, OpsTable, OrderStatus, PaymentMethod, RecipeIngredient } from "@/types/ops";
 import {
@@ -25,6 +29,7 @@ import {
   TextArea,
   useOpsPage
 } from "./OpsShared";
+import { OrderReceiptPrintButton } from "./OrderReceiptPrintButton";
 import { option, orderTypes, paymentMethods, tableStatuses } from "./OpsPageShared";
 
 type OrderEditLine = {
@@ -59,14 +64,11 @@ type StartCartLine = {
   modifiers: string[];
 };
 
+const moveOrderMessageKey = "ops-table-order-move-message";
+
 export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
+  const router = useRouter();
   const state = useOpsPage("tables");
-  const [table, setTable] = useState<OpsTable | null>(null);
-  const [order, setOrder] = useState<OpsOrder | null>(null);
-  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [recipes, setRecipes] = useState<RecipeIngredient[]>([]);
-  const [cashRegisters, setCashRegisters] = useState<CashRegister[]>([]);
   const [tableFormOpen, setTableFormOpen] = useState(false);
   const [tableForm, setTableForm] = useState({ name: "", area: "", capacity: 1, status: "AVAILABLE", qrCode: "" });
   const [orderForm, setOrderForm] = useState({ name: "", tableId: "", type: "DINE_IN", status: "PENDING", discount: 0, tax: 0, serviceCharge: 0, paymentMethod: "CASH", notes: "" });
@@ -80,9 +82,27 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
   const [startCart, setStartCart] = useState<StartCartLine[]>([]);
   const [startItemQuery, setStartItemQuery] = useState("");
   const [activeStartCategoryId, setActiveStartCategoryId] = useState("all");
+  const [moveOrderOpen, setMoveOrderOpen] = useState(false);
+  const [moveTargetTableId, setMoveTargetTableId] = useState("");
+  const tenantId = state.restaurant?.id ?? "";
+  const offlineContext = useMemo<OfflineContext | null>(() => {
+    if (!state.token || !tenantId) return null;
+    return { token: state.token, tenantId, userId: state.restaurant?.ownerUserId ?? "owner" };
+  }, [state.restaurant?.ownerUserId, state.token, tenantId]);
+  const { value: table } = useLiveQuery(() => tenantId ? getLocalTable(tenantId, tableId) : Promise.resolve(null), null as OpsTable | null, [tenantId, tableId]);
+  const { value: tables } = useLiveQuery(() => tenantId ? listLocalTables(tenantId) : Promise.resolve([]), [] as OpsTable[], [tenantId]);
+  const { value: order } = useLiveQuery(() => tenantId && table?.currentOrderId ? getLocalOrder(tenantId, table.currentOrderId) : Promise.resolve(null), null as OpsOrder | null, [tenantId, table?.currentOrderId]);
+  const { value: menuItems } = useLiveQuery(() => tenantId ? listLocalMenuItems(tenantId) : Promise.resolve([]), [] as MenuItem[], [tenantId]);
+  const { value: categories } = useLiveQuery(() => tenantId ? listLocalCategories(tenantId) : Promise.resolve([]), [] as Category[], [tenantId]);
+  const { value: recipes } = useLiveQuery(() => tenantId ? listLocalRecipeIngredients(tenantId) : Promise.resolve([]), [] as RecipeIngredient[], [tenantId]);
+  const { value: cashRegisters } = useLiveQuery(() => tenantId ? listLocalCashRegisters(tenantId) : Promise.resolve([]), [] as CashRegister[], [tenantId]);
 
   const lockedOrder = Boolean(order && (["COMPLETED", "CANCELLED"].includes(order.status) || order.invoiceId || order.paymentId));
   const canStartOrder = Boolean(table && !table.currentOrderId && !order && state.modules?.orders);
+  const currentOrderTableId = order?.tableId || tableId;
+  const eligibleMoveTables = useMemo(() => {
+    return tables.filter((entry) => entry.id !== currentOrderTableId && entry.status !== "DISABLED" && !entry.currentOrderId);
+  }, [currentOrderTableId, tables]);
   const previewTotal = useMemo(() => {
     const subTotal = lines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
     return Math.max(subTotal - orderForm.discount + orderForm.tax + orderForm.serviceCharge, 0);
@@ -90,57 +110,37 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
   const startCartSubTotal = startCart.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
 
   useEffect(() => {
-    if (state.token && state.modules?.tables) void load();
-  }, [state.token, state.modules?.tables, tableId]);
+    if (offlineContext && state.modules?.tables) void load();
+  }, [offlineContext, state.modules?.tables, tableId]);
 
-  async function load() {
-    const nextTable = await adminRequest<OpsTable>(`/api/owner/ops/tables/${tableId}`, state.token);
-    setTable(nextTable);
-    hydrateTableForm(nextTable);
+  useEffect(() => {
+    if (table) hydrateTableForm(table);
+  }, [table]);
 
-    const [nextMenuItems, nextCategories, nextOrder, nextRecipes, nextCashRegisters] = await Promise.all([
-      adminRequest<MenuItem[]>("/api/owner/items", state.token).catch(() => []),
-      adminRequest<Category[]>("/api/owner/categories", state.token).catch(() => []),
-      nextTable.currentOrderId && state.modules?.orders ? adminRequest<OpsOrder>(`/api/owner/ops/orders/${nextTable.currentOrderId}`, state.token).catch(() => null) : Promise.resolve(null),
-      state.modules?.inventory ? adminRequest<RecipeIngredient[]>("/api/owner/ops/recipes", state.token).catch(() => []) : Promise.resolve([]),
-      state.modules?.accounting ? adminRequest<CashRegister[]>("/api/owner/ops/cash/registers", state.token).catch(() => []) : Promise.resolve([])
-    ]);
-    setMenuItems(nextMenuItems);
-    setCategories(nextCategories);
-    setRecipes(nextRecipes);
-    setCashRegisters(nextCashRegisters);
-    setDraftLine((current) => ({ ...current, menuItemId: current.menuItemId || nextMenuItems[0]?.id || "" }));
-    setOrder(nextOrder);
+  useEffect(() => {
+    setDraftLine((current) => ({ ...current, menuItemId: current.menuItemId || menuItems[0]?.id || "" }));
+  }, [menuItems]);
 
-    if (nextOrder) {
-      setOrderForm({
-        name: nextOrder.name || nextOrder.id,
-        tableId: nextOrder.tableId || nextTable.id,
-        type: nextOrder.type,
-        status: nextOrder.status,
-        discount: nextOrder.discount,
-        tax: nextOrder.tax,
-        serviceCharge: nextOrder.serviceCharge,
-        paymentMethod: nextOrder.paymentMethod,
-        notes: nextOrder.notes || ""
-      });
-      setCompleteForm((current) => ({
-        ...current,
-        paymentMethod: nextOrder.paymentMethod,
-        paidAmount: nextOrder.paymentMethod === "DEBT" ? 0 : nextOrder.total,
-        cashRegisterId: current.cashRegisterId || nextCashRegisters[0]?.id || "",
-        note: nextOrder.notes || ""
-      }));
-      setLines(nextOrder.items.map((line) => ({
-        menuItemId: line.menuItemId,
-        name: line.name,
-        quantity: line.quantity,
-        unitPrice: line.unitPrice,
-        notes: line.notes || "",
-        modifiers: line.modifiers || []
-      })));
+  useEffect(() => {
+    if (order) {
+      hydrateOrderForms(order);
     } else {
       setLines([]);
+    }
+  }, [order, cashRegisters]);
+
+  async function load() {
+    if (!offlineContext) return;
+    await Promise.all([
+      hydrateTables(offlineContext),
+      hydrateOrders(offlineContext),
+      hydrateReferenceData(offlineContext, { inventory: state.modules?.inventory, accounting: state.modules?.accounting })
+    ]);
+
+    const moveMessage = window.sessionStorage.getItem(moveOrderMessageKey);
+    if (moveMessage) {
+      window.sessionStorage.removeItem(moveOrderMessageKey);
+      state.setMessage(moveMessage);
     }
   }
 
@@ -152,6 +152,35 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
       status: nextTable.status,
       qrCode: nextTable.qrCode || ""
     });
+  }
+
+  function hydrateOrderForms(nextOrder: OpsOrder) {
+    setOrderForm({
+      name: nextOrder.name || nextOrder.id,
+      tableId: nextOrder.tableId || table?.id || tableId,
+      type: nextOrder.type,
+      status: nextOrder.status,
+      discount: nextOrder.discount,
+      tax: nextOrder.tax,
+      serviceCharge: nextOrder.serviceCharge,
+      paymentMethod: nextOrder.paymentMethod,
+      notes: nextOrder.notes || ""
+    });
+    setCompleteForm((current) => ({
+      ...current,
+      paymentMethod: nextOrder.paymentMethod,
+      paidAmount: nextOrder.paymentMethod === "DEBT" ? 0 : nextOrder.total,
+      cashRegisterId: current.cashRegisterId || cashRegisters[0]?.id || "",
+      note: nextOrder.notes || ""
+    }));
+    setLines(nextOrder.items.map((line) => ({
+      menuItemId: line.menuItemId,
+      name: line.name,
+      quantity: line.quantity,
+      unitPrice: line.unitPrice,
+      notes: line.notes || "",
+      modifiers: line.modifiers || []
+    })));
   }
 
   function openTableForm() {
@@ -167,12 +196,17 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
   async function saveTable(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await runLocal(async () => {
-      await adminRequest(`/api/owner/ops/tables/${tableId}`, state.token, {
-        method: "PATCH",
-        body: JSON.stringify(tableForm)
+      if (!offlineContext || !table) return;
+      await saveLocalTable(offlineContext, {
+        id: table.id,
+        name: tableForm.name,
+        area: tableForm.area,
+        capacity: tableForm.capacity,
+        status: tableForm.status as OpsTable["status"],
+        currentOrderId: table.currentOrderId,
+        qrCode: tableForm.qrCode
       });
       setTableFormOpen(false);
-      await load();
     });
   }
 
@@ -203,24 +237,9 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
     }
 
     await runLocal(async () => {
-      await adminRequest("/api/owner/ops/orders", state.token, {
-        method: "POST",
-        body: JSON.stringify({
-          name: startOrderForm.name,
-          tableId: startOrderForm.tableId,
-          type: startOrderForm.type,
-          source: startOrderForm.source,
-          orderedAt: combineLocalDateTime(startOrderForm.orderedDate, startOrderForm.orderedTime),
-          items: startCart.map((line) => ({ menuItemId: line.menuItemId, quantity: line.quantity, notes: line.notes, modifiers: line.modifiers })),
-          discount: startOrderForm.discount,
-          tax: startOrderForm.tax,
-          serviceCharge: startOrderForm.serviceCharge,
-          paymentMethod: startOrderForm.paymentMethod,
-          notes: startOrderForm.notes
-        })
-      });
+      if (!offlineContext) return;
+      await createLocalOrder(offlineContext, buildStartOrderCreateInput(startOrderForm, startCart));
       closeStartOrder();
-      await load();
     });
   }
 
@@ -260,21 +279,18 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
     }
 
     await runLocal(async () => {
-      await adminRequest(`/api/owner/ops/orders/${order.id}`, state.token, {
-        method: "PATCH",
-        body: JSON.stringify({
-          name: orderForm.name,
-          tableId: orderForm.tableId,
-          type: orderForm.type,
-          discount: orderForm.discount,
-          tax: orderForm.tax,
-          serviceCharge: orderForm.serviceCharge,
-          paymentMethod: orderForm.paymentMethod,
-          notes: orderForm.notes,
-          items: lines.map((line) => ({ menuItemId: line.menuItemId, quantity: line.quantity, notes: line.notes, modifiers: line.modifiers }))
-        })
+      if (!offlineContext) return;
+      await updateLocalOrder(offlineContext, order.id, {
+        name: orderForm.name,
+        tableId: orderForm.tableId,
+        type: orderForm.type as OpsOrder["type"],
+        discount: orderForm.discount,
+        tax: orderForm.tax,
+        serviceCharge: orderForm.serviceCharge,
+        paymentMethod: orderForm.paymentMethod as PaymentMethod,
+        notes: orderForm.notes,
+        items: lines.map((line) => ({ menuItemId: line.menuItemId, quantity: line.quantity, notes: line.notes, modifiers: line.modifiers }))
       });
-      await load();
     });
   }
 
@@ -300,6 +316,40 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
     setLines((current) => current.map((line, lineIndex) => (lineIndex === index ? { ...line, ...patch, quantity: Math.max(1, patch.quantity ?? line.quantity) } : line)));
   }
 
+  function openMoveOrder() {
+    if (!order || lockedOrder) return;
+    const firstTargetId = eligibleMoveTables[0]?.id || "";
+    setMoveTargetTableId(firstTargetId);
+    setMoveOrderOpen(true);
+  }
+
+  function closeMoveOrder() {
+    setMoveOrderOpen(false);
+    setMoveTargetTableId("");
+  }
+
+  async function moveOrder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!order || lockedOrder) return;
+
+    const targetTable = eligibleMoveTables.find((entry) => entry.id === moveTargetTableId);
+    if (!targetTable) {
+      state.setMessage("اختر طاولة فارغة ومتاحة لنقل الطلب.");
+      return;
+    }
+    if (!window.confirm(`نقل الطلب ${order.name || order.id} إلى الطاولة ${targetTable.name}؟`)) return;
+
+    await runOrderAction(async () => {
+      if (!offlineContext) return;
+      await updateLocalOrder(offlineContext, order.id, { tableId: targetTable.id });
+      const message = `تم نقل الطلب إلى الطاولة ${targetTable.name}.`;
+      window.sessionStorage.setItem(moveOrderMessageKey, message);
+      closeMoveOrder();
+      state.setMessage(message);
+      router.push(`/owner/operations/tables/${targetTable.id}`);
+    });
+  }
+
   async function runLocal(action: () => Promise<void>) {
     state.setMessage("");
     try {
@@ -312,11 +362,8 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
   async function changeOrderStatus(status: OrderStatus) {
     if (!order || lockedOrder) return;
     await runOrderAction(async () => {
-      await adminRequest(`/api/owner/ops/orders/${order.id}`, state.token, {
-        method: "PATCH",
-        body: JSON.stringify({ status })
-      });
-      await load();
+      if (!offlineContext) return;
+      await updateLocalOrder(offlineContext, order.id, { status });
     });
   }
 
@@ -330,16 +377,13 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
     if (!window.confirm(`إنهاء الطلب ${order.id} بقيمة ${money(order.total, state.restaurant?.currency)}؟`)) return;
 
     await runOrderAction(async () => {
-      await adminRequest(`/api/owner/ops/orders/${order.id}/complete`, state.token, {
-        method: "POST",
-        body: JSON.stringify({
-          paymentMethod: completeForm.paymentMethod,
-          paidAmount,
-          cashRegisterId: completeForm.cashRegisterId || undefined,
-          note: completeForm.note
-        })
+      if (!offlineContext) return;
+      await completeLocalOrder(offlineContext, order.id, {
+        paymentMethod: completeForm.paymentMethod as PaymentMethod,
+        paidAmount,
+        cashRegisterId: completeForm.cashRegisterId || undefined,
+        note: completeForm.note
       });
-      await load();
     });
   }
 
@@ -349,11 +393,8 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
     if (!reason.trim()) return;
 
     await runOrderAction(async () => {
-      await adminRequest(`/api/owner/ops/orders/${order.id}/cancel`, state.token, {
-        method: "POST",
-        body: JSON.stringify({ reason })
-      });
-      await load();
+      if (!offlineContext) return;
+      await cancelLocalOrder(offlineContext, order.id, reason);
     });
   }
 
@@ -484,6 +525,8 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
                   onComplete={() => void completeCurrentOrder()}
                   onCancel={() => void cancelCurrentOrder()}
                 />
+                <OrderReceiptPrintButton order={order} restaurant={state.restaurant} table={table} token={state.token} disabled={!order.items.length} />
+                {!lockedOrder ? <SecondaryButton onClick={openMoveOrder}>نقل الطلب</SecondaryButton> : null}
               </div>
 
               {lockedOrder ? (
@@ -494,7 +537,7 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
 
               {!lockedOrder ? (
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  <div className="grid gap-3 md:grid-cols-[1fr_115px] ">
+                  <div className="grid gap-3 md:grid-cols-[1fr_215px] ">
                     <SelectField label="إضافة صنف" value={draftLine.menuItemId} options={menuItems.map((item) => ({ value: item.id, label: `${item.name} - ${money(item.price, state.restaurant?.currency)}` }))} onChange={(menuItemId) => setDraftLine({ ...draftLine, menuItemId })} />
                     <Field label="الكمية" type="number" min="1" value={draftLine.quantity} onChange={(quantity) => setDraftLine({ ...draftLine, quantity: Number(quantity) })} />
                   </div>
@@ -622,6 +665,33 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
             <SecondaryButton onClick={closeTableForm}>إلغاء</SecondaryButton>
           </div>
         </form>
+      </PopupForm>
+
+      <PopupForm open={moveOrderOpen} onClose={closeMoveOrder} title="نقل الطلب" description={order && table ? `نقل ${order.name || order.id} من الطاولة ${table.name}` : undefined} maxWidth="md">
+        {eligibleMoveTables.length ? (
+          <form onSubmit={moveOrder} className="grid gap-3">
+            <SelectField
+              label="الطاولة الجديدة"
+              value={moveTargetTableId}
+              options={eligibleMoveTables.map((entry) => ({ value: entry.id, label: `${entry.name} - ${entry.area || "بدون منطقة"} - ${entry.capacity} مقاعد` }))}
+              onChange={setMoveTargetTableId}
+            />
+            <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-600">
+              سيتم نقل الطلب بكل تفاصيله إلى الطاولة المختارة، ولن يتم تغيير البنود أو الإجماليات.
+            </p>
+            <div className="flex gap-2">
+              <PrimaryButton disabled={!moveTargetTableId || orderActionBusy}>تأكيد النقل</PrimaryButton>
+              <SecondaryButton onClick={closeMoveOrder}>إلغاء</SecondaryButton>
+            </div>
+          </form>
+        ) : (
+          <div className="grid gap-3">
+            <Empty title="لا توجد طاولات فارغة" text="كل الطاولات المتاحة مشغولة أو معطلة حاليًا." />
+            <div className="flex justify-end">
+              <SecondaryButton onClick={closeMoveOrder}>إغلاق</SecondaryButton>
+            </div>
+          </div>
+        )}
       </PopupForm>
 
       <PopupForm open={startOrderOpen} onClose={closeStartOrder} title="بدء طلب" description={table ? `الطاولة: ${table.name}` : undefined} maxWidth="xl">
@@ -780,4 +850,20 @@ function combineLocalDateTime(date: string, time: string) {
   const localTime = time || "00:00";
   const parsed = new Date(`${localDate}T${localTime}`);
   return Number.isNaN(parsed.getTime()) ? fallback.toISOString() : parsed.toISOString();
+}
+
+function buildStartOrderCreateInput(form: StartOrderForm, cart: StartCartLine[]): OrderCreateInput {
+  return {
+    name: form.name,
+    tableId: form.tableId,
+    type: form.type as OpsOrder["type"],
+    source: form.source as OpsOrder["source"],
+    orderedAt: combineLocalDateTime(form.orderedDate, form.orderedTime),
+    items: cart.map((line) => ({ menuItemId: line.menuItemId, quantity: line.quantity, notes: line.notes, modifiers: line.modifiers })),
+    discount: form.discount,
+    tax: form.tax,
+    serviceCharge: form.serviceCharge,
+    paymentMethod: form.paymentMethod as PaymentMethod,
+    notes: form.notes
+  };
 }

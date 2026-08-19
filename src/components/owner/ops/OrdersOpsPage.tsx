@@ -3,8 +3,11 @@
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { PopupForm } from "@/components/shared";
-import { adminRequest } from "@/lib/api";
 import { formatInteger } from "@/lib/format";
+import { useLiveQuery } from "@/offline/hooks/useLiveQuery";
+import { completeLocalOrder, createLocalOrder, cancelLocalOrder, hydrateOrders, listLocalOrders, updateLocalOrder, type OrderCreateInput } from "@/offline/repositories/orders";
+import { hydrateReferenceData, listLocalCashRegisters, listLocalCategories, listLocalMenuItems, listLocalRecipeIngredients } from "@/offline/repositories/reference-data";
+import { hydrateTables, listLocalTables, type OfflineContext } from "@/offline/repositories/tables";
 import type { Category, MenuItem } from "@/types/menu";
 import type { CashRegister, OpsOrder, OpsTable, OrderStatus, PaymentMethod, RecipeIngredient } from "@/types/ops";
 import {
@@ -24,6 +27,7 @@ import {
   TextArea,
   useOpsPage
 } from "./OpsShared";
+import { OrderReceiptPrintButton } from "./OrderReceiptPrintButton";
 import { Filters, option, orderStatuses, orderTypes, paymentMethods, run } from "./OpsPageShared";
 
 type OrderCartLine = {
@@ -51,12 +55,6 @@ type OrderForm = {
 
 export function OrdersOpsPage() {
   const state = useOpsPage("orders");
-  const [orders, setOrders] = useState<OpsOrder[]>([]);
-  const [items, setItems] = useState<MenuItem[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [tables, setTables] = useState<OpsTable[]>([]);
-  const [recipes, setRecipes] = useState<RecipeIngredient[]>([]);
-  const [cashRegisters, setCashRegisters] = useState<CashRegister[]>([]);
   const [query, setQuery] = useState("");
   const [itemQuery, setItemQuery] = useState("");
   const [activeItemCategoryId, setActiveItemCategoryId] = useState("all");
@@ -67,27 +65,33 @@ export function OrdersOpsPage() {
   const [cart, setCart] = useState<OrderCartLine[]>([]);
   const [complete, setComplete] = useState({ orderId: "", paymentMethod: "CASH", paidAmount: 0, cashRegisterId: "", note: "" });
   const [orderActionBusyId, setOrderActionBusyId] = useState("");
+  const tenantId = state.restaurant?.id ?? "";
+  const offlineContext = useMemo<OfflineContext | null>(() => {
+    if (!state.token || !tenantId) return null;
+    return { token: state.token, tenantId, userId: state.restaurant?.ownerUserId ?? "owner" };
+  }, [state.restaurant?.ownerUserId, state.token, tenantId]);
+  const { value: orders } = useLiveQuery(() => tenantId ? listLocalOrders(tenantId) : Promise.resolve([]), [] as OpsOrder[], [tenantId]);
+  const { value: items } = useLiveQuery(() => tenantId ? listLocalMenuItems(tenantId) : Promise.resolve([]), [] as MenuItem[], [tenantId]);
+  const { value: categories } = useLiveQuery(() => tenantId ? listLocalCategories(tenantId) : Promise.resolve([]), [] as Category[], [tenantId]);
+  const { value: tables } = useLiveQuery(() => tenantId ? listLocalTables(tenantId) : Promise.resolve([]), [] as OpsTable[], [tenantId]);
+  const { value: recipes } = useLiveQuery(() => tenantId ? listLocalRecipeIngredients(tenantId) : Promise.resolve([]), [] as RecipeIngredient[], [tenantId]);
+  const { value: cashRegisters } = useLiveQuery(() => tenantId ? listLocalCashRegisters(tenantId) : Promise.resolve([]), [] as CashRegister[], [tenantId]);
 
   useEffect(() => {
-    if (state.token && state.modules?.orders) void load();
-  }, [state.token, state.modules?.orders]);
+    if (offlineContext && state.modules?.orders) void load();
+  }, [offlineContext, state.modules?.orders]);
+
+  useEffect(() => {
+    setComplete((current) => ({ ...current, cashRegisterId: current.cashRegisterId || cashRegisters[0]?.id || "" }));
+  }, [cashRegisters]);
 
   async function load() {
-    const [nextOrders, nextItems, nextCategories, nextTables, nextRecipes, nextCashRegisters] = await Promise.all([
-      adminRequest<OpsOrder[]>("/api/owner/ops/orders", state.token),
-      adminRequest<MenuItem[]>("/api/owner/items", state.token),
-      adminRequest<Category[]>("/api/owner/categories", state.token).catch(() => []),
-      state.modules?.tables ? adminRequest<OpsTable[]>("/api/owner/ops/tables", state.token).catch(() => []) : Promise.resolve([]),
-      state.modules?.inventory ? adminRequest<RecipeIngredient[]>("/api/owner/ops/recipes", state.token).catch(() => []) : Promise.resolve([]),
-      state.modules?.accounting ? adminRequest<CashRegister[]>("/api/owner/ops/cash/registers", state.token).catch(() => []) : Promise.resolve([])
+    if (!offlineContext) return;
+    await Promise.all([
+      hydrateOrders(offlineContext),
+      hydrateReferenceData(offlineContext, { inventory: state.modules?.inventory, accounting: state.modules?.accounting }),
+      state.modules?.tables ? hydrateTables(offlineContext) : Promise.resolve()
     ]);
-    setOrders(nextOrders);
-    setItems(nextItems);
-    setCategories(nextCategories);
-    setTables(nextTables);
-    setRecipes(nextRecipes);
-    setCashRegisters(nextCashRegisters);
-    setComplete((current) => ({ ...current, cashRegisterId: current.cashRegisterId || nextCashRegisters[0]?.id || "" }));
   }
 
   function openNewOrder() {
@@ -167,31 +171,16 @@ export function OrdersOpsPage() {
     }
 
     await run(state, async () => {
-      await adminRequest("/api/owner/ops/orders", state.token, {
-        method: "POST",
-        body: JSON.stringify({
-          name: form.name,
-          tableId: form.tableId,
-          type: form.type,
-          source: form.source,
-          orderedAt: combineLocalDateTime(form.orderedDate, form.orderedTime),
-          items: cart.map((line) => ({ menuItemId: line.menuItemId, quantity: line.quantity, notes: line.notes, modifiers: line.modifiers })),
-          discount: form.discount,
-          tax: form.tax,
-          serviceCharge: form.serviceCharge,
-          paymentMethod: form.paymentMethod,
-          notes: form.notes
-        })
-      });
+      if (!offlineContext) throw new Error("تعذر تحديد المطعم الحالي.");
+      await createLocalOrder(offlineContext, buildOrderCreateInput(form, cart));
       closeOrderForm();
-      await load();
     });
   }
 
   async function changeOrderStatus(orderId: string, nextStatus: OrderStatus) {
     await runOrderAction(orderId, async () => {
-      await adminRequest(`/api/owner/ops/orders/${orderId}`, state.token, { method: "PATCH", body: JSON.stringify({ status: nextStatus }) });
-      await load();
+      if (!offlineContext) throw new Error("تعذر تحديد المطعم الحالي.");
+      await updateLocalOrder(offlineContext, orderId, { status: nextStatus });
     });
   }
 
@@ -216,17 +205,14 @@ export function OrdersOpsPage() {
     if (!window.confirm(`إنهاء الطلب ${order.id} بقيمة ${money(order.total, state.restaurant?.currency)}؟`)) return;
 
     await runOrderAction(order.id, async () => {
-      await adminRequest(`/api/owner/ops/orders/${order.id}/complete`, state.token, {
-        method: "POST",
-        body: JSON.stringify({
-          paymentMethod,
-          paidAmount,
-          cashRegisterId: complete.cashRegisterId || undefined,
-          note: complete.note
-        })
+      if (!offlineContext) throw new Error("تعذر تحديد المطعم الحالي.");
+      await completeLocalOrder(offlineContext, order.id, {
+        paymentMethod: paymentMethod as PaymentMethod,
+        paidAmount,
+        cashRegisterId: complete.cashRegisterId || undefined,
+        note: complete.note
       });
       setComplete((current) => ({ ...current, orderId: "", paidAmount: 0, note: "" }));
-      await load();
     });
   }
 
@@ -234,8 +220,8 @@ export function OrdersOpsPage() {
     const reason = window.prompt("سبب الإلغاء") || "";
     if (!reason.trim()) return;
     await runOrderAction(orderId, async () => {
-      await adminRequest(`/api/owner/ops/orders/${orderId}/cancel`, state.token, { method: "POST", body: JSON.stringify({ reason }) });
-      await load();
+      if (!offlineContext) throw new Error("تعذر تحديد المطعم الحالي.");
+      await cancelLocalOrder(offlineContext, orderId, reason);
     });
   }
 
@@ -318,6 +304,7 @@ export function OrdersOpsPage() {
                     <StatusBadge label={orderStatusLabels[order.status]} tone={order.status === "COMPLETED" ? "green" : order.status === "CANCELLED" ? "red" : "amber"} />
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
+                    <OrderReceiptPrintButton order={order} restaurant={state.restaurant} table={tables.find((table) => table.id === order.tableId) ?? null} token={state.token} disabled={!order.items.length} />
                     {order.status !== "COMPLETED" && order.status !== "CANCELLED" ? (
                       <OrderStatusActions
                         status={order.status}
@@ -523,6 +510,27 @@ function combineLocalDateTime(date: string, time: string) {
   const localTime = time || "00:00";
   const parsed = new Date(`${localDate}T${localTime}`);
   return Number.isNaN(parsed.getTime()) ? fallback.toISOString() : parsed.toISOString();
+}
+
+function buildOrderCreateInput(form: OrderForm, cart: OrderCartLine[]): OrderCreateInput {
+  return {
+    name: form.name,
+    tableId: form.tableId,
+    type: form.type as OrderCreateInput["type"],
+    source: form.source as OrderCreateInput["source"],
+    orderedAt: combineLocalDateTime(form.orderedDate, form.orderedTime),
+    items: cart.map((line) => ({
+      menuItemId: line.menuItemId,
+      quantity: line.quantity,
+      notes: line.notes,
+      modifiers: line.modifiers
+    })),
+    discount: form.discount,
+    tax: form.tax,
+    serviceCharge: form.serviceCharge,
+    paymentMethod: form.paymentMethod as PaymentMethod,
+    notes: form.notes
+  };
 }
 
 function formatOrderDateTime(value: string | undefined) {
