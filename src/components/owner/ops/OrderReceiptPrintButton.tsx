@@ -4,6 +4,7 @@ import { Printer } from "lucide-react";
 import QRCode from "qrcode";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useReactToPrint } from "react-to-print";
+import { AppButton } from "@/components/shared";
 import { adminRequest } from "@/lib/api";
 import type { Restaurant } from "@/types/menu";
 import type { OpsOrder, OpsTable } from "@/types/ops";
@@ -142,15 +143,15 @@ export function OrderReceiptPrintButton({
 
   return (
     <>
-      <button
+      <AppButton
         type="button"
+        variant="secondary"
         disabled={disabled}
         onClick={printReceipt}
-        className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-black text-slate-700 transition hover:border-amber-300 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+        iconStart={<Printer className="h-4 w-4" />}
       >
-        <Printer className="h-4 w-4" />
         طباعة
-      </button>
+      </AppButton>
       <div ref={printRef} className="receipt-print-source" aria-hidden="true">
         <article className="thermal-receipt">
           <header className="receipt-header">
@@ -171,7 +172,7 @@ export function OrderReceiptPrintButton({
               <strong>{receipt.invoiceDateTime}</strong>
               <span>Invoice Date :</span>
             </p>
-            <p className="receipt-submeta">تحت الفاتورة : {receipt.invoiceDateTime}</p>
+            <p className="receipt-submeta">فتح الفاتورة : {receipt.invoiceDateTime}</p>
             <p className="receipt-sale-label">{receipt.saleLabel}</p>
           </header>
 
@@ -196,7 +197,7 @@ export function OrderReceiptPrintButton({
             </tbody>
           </table>
 
-          <section className="receipt-totals">
+          <section className="receipt-totals" dir="ltr">
             <ReceiptTotal label="الإجمالي قبل الضريبة" currency={receipt.currency} amount={receipt.baseAmount} />
             <ReceiptTotal label="ضريبة الإنفاق الاستهلاكي" currency={receipt.currency} amount={receipt.consumerTax} />
             <ReceiptTotal label="ضريبة إدارة محلية" currency={receipt.currency} amount={receipt.localAdminTax} />
@@ -229,8 +230,8 @@ function ReceiptTotal({ label, currency, amount, strong = false }: { label: stri
   return (
     <div className={strong ? "receipt-total receipt-total-strong" : "receipt-total"}>
       <span className="receipt-total-label">{label}</span>
-      <span className="receipt-total-currency">{currency}</span>
       <span className="receipt-total-amount">{formatReceiptAmount(amount)}</span>
+      <span className="receipt-total-currency">{currency}</span>
     </div>
   );
 }

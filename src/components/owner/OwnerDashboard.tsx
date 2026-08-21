@@ -1,12 +1,12 @@
 "use client";
 
 import {
-  AlertCircle,
   Boxes,
-  CheckCircle2,
   Eye,
   FolderOpen,
+  Image as ImageIcon,
   LogOut,
+  Pencil,
   Palette,
   Plus,
   RefreshCw,
@@ -17,15 +17,28 @@ import {
   Utensils
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { MenuTemplateRenderer } from "@/components/menu/MenuTemplateRenderer";
-import { PopupForm } from "@/components/shared";
+import {
+  AppBadge,
+  AppButton,
+  AppEmptyState,
+  AppFieldShell,
+  AppInput,
+  AppPageHeader,
+  AppSelect,
+  AppSurface,
+  AppTextarea,
+  AppToolbar,
+  PopupForm,
+  cn
+} from "@/components/shared";
 import { OwnerRecipeEditorModal } from "./OwnerRecipeEditorModal";
-import { Chip, ColorField, EmptyState, Field, FormErrors, IconButton, ImageUpload, ItemRow, ListRow, MessageBox, NumberField, Panel, PrimaryButton, ReadOnlyField, SelectField, StatusPill, TextArea, Toggle, Warning } from "./OwnerDashboardParts";
+import { FormErrors, IconButton, MessageBox, Warning } from "./OwnerDashboardParts";
 import { adminRequest } from "@/lib/api";
 import { formatInteger, formatMoney } from "@/lib/format";
 import { normalizeModules } from "@/lib/modules";
-import { normalizeTemplate, planLabels, planTemplates, templateLabels, planLimits, subscriptionLabels } from "@/lib/plans";
+import { normalizeTemplate, planLabels, planTemplates, templateLabels, planLimits } from "@/lib/plans";
 import type { Category, MenuItem, MenuTemplate, Restaurant, Theme } from "@/types/menu";
 import type { InventoryItem, RecipeDraftLine, RecipeIngredient } from "@/types/ops";
 
@@ -115,6 +128,8 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
   const [editingItemId, setEditingItemId] = useState("");
   const [categoryFormOpen, setCategoryFormOpen] = useState(false);
   const [itemFormOpen, setItemFormOpen] = useState(false);
+  const [pendingDeleteCategory, setPendingDeleteCategory] = useState<Category | null>(null);
+  const [pendingDeleteItem, setPendingDeleteItem] = useState<MenuItem | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("items");
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -145,6 +160,12 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
   const itemErrors = getItemErrors(itemForm, categories);
   const categoryErrors = getCategoryErrors(categoryForm);
   const detailsErrors = getDetailsErrors(form);
+  const activePageHeader = {
+    items: { title: "المنتجات", description: "إدارة أصناف المنيو والأسعار والتوفر." },
+    design: { title: "التصميم", description: "إعداد القالب والألوان ومعاينة المنيو قبل الحفظ." },
+    details: { title: "بيانات المطعم", description: "إدارة المعلومات التي تظهر في صفحة المنيو العامة." },
+    categories: { title: "الأقسام", description: "ترتيب أقسام المنيو والتحكم بظهورها." }
+  }[activeTab];
 
   useEffect(() => {
     const storedToken = window.localStorage.getItem("menu-owner-token");
@@ -253,12 +274,9 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
   }
 
   async function removeCategory(categoryId: string) {
-    const hasItems = items.some((item) => item.categoryId === categoryId);
-    const warning = hasItems ? "هذا القسم يحتوي أصنافاً. حذف القسم قد يترك هذه الأصناف بلا قسم. هل تريد المتابعة؟" : "هل تريد حذف هذا القسم؟";
-    if (!window.confirm(warning)) return;
-
     await run(async () => {
       await adminRequest(`/api/owner/categories/${categoryId}`, token, { method: "DELETE" });
+      setPendingDeleteCategory(null);
       await refresh();
     }, "تم حذف القسم.");
   }
@@ -283,9 +301,9 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
   }
 
   async function removeItem(itemId: string) {
-    if (!window.confirm("هل تريد حذف هذا الصنف؟")) return;
     await run(async () => {
       await adminRequest(`/api/owner/items/${itemId}`, token, { method: "DELETE" });
+      setPendingDeleteItem(null);
       await refresh();
     }, "تم حذف الصنف.");
   }
@@ -339,10 +357,10 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
   if (!restaurant) {
     const LoadingRoot = embedded ? "div" : "main";
     return (
-      <LoadingRoot className="grid min-h-[320px] place-items-center bg-[#f6f7f9] px-4" dir="rtl">
+      <LoadingRoot className="grid min-h-[320px] place-items-center bg-app-bg px-4" dir="rtl">
         <div className="text-center">
-          <RefreshCw className="mx-auto h-7 w-7 animate-spin text-amber-600" />
-          <p className="mt-3 font-black text-slate-700">جاري تحميل لوحة المطعم...</p>
+          <RefreshCw className="mx-auto h-7 w-7 animate-spin text-app-primary" />
+          <p className="mt-3 font-semibold text-app-ink">جاري تحميل لوحة المطعم...</p>
           {message ? <MessageBox message={message} /> : null}
         </div>
       </LoadingRoot>
@@ -352,7 +370,7 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
   const Root = embedded ? "div" : "main";
 
   return (
-    <Root className={embedded ? "text-slate-950" : "min-h-screen bg-[#f5f6f8] text-slate-950"} dir="rtl">
+    <Root className={embedded ? "text-app-ink" : "min-h-screen bg-app-bg text-app-ink"} dir="rtl">
       {!embedded ? <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
           <div className="min-w-0">
@@ -379,45 +397,74 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
       </header> : null}
 
       <div className={embedded ? "mx-auto max-w-7xl" : "mx-auto max-w-7xl p-4"}>
-        <section className="mb-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-          <div>
+        <AppPageHeader
+          className="mb-4"
+          title={activePageHeader.title}
+          description={activePageHeader.description}
+          primaryAction={
+            activeTab === "items" ? (
+              <AppButton type="button" disabled={atItemLimit} onClick={openNewItemForm} iconStart={<Plus className="h-4 w-4" />}>
+                إضافة منتج
+              </AppButton>
+            ) : activeTab === "categories" ? (
+              <AppButton type="button" disabled={atCategoryLimit} onClick={openNewCategoryForm} iconStart={<Plus className="h-4 w-4" />}>
+                إضافة قسم
+              </AppButton>
+            ) : activeTab === "design" ? (
+              <a
+                href={`/${restaurant.slug}`}
+                target="_blank"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-app-md border border-app-border bg-app-surface px-4 text-sm font-semibold text-app-ink transition-colors hover:border-app-border-strong hover:bg-app-surface-muted focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft"
+              >
+                <Eye className="h-4 w-4" />
+                معاينة المنيو
+              </a>
+            ) : null
+          }
+          secondaryActions={
             <div className="flex flex-wrap items-center gap-2">
-              <StatusPill active={restaurant.isActive} />
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">{planLabels[restaurant.plan]}</span>
-              <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-600 ring-1 ring-slate-200">
-                {formatInteger(items.length)} صنف
-              </span>
-              <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-600 ring-1 ring-slate-200">
-                {formatInteger(categories.length)} / {formatInteger(currentLimits.maxCategories)} sections
-              </span>
-              <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-600 ring-1 ring-slate-200">
-                {formatInteger(items.length)} / {formatInteger(currentLimits.maxItems)} items
-              </span>
+              <AppBadge variant={restaurant.isActive ? "success" : "danger"}>{restaurant.isActive ? "المنيو فعال" : "المنيو متوقف"}</AppBadge>
+              <AppBadge variant="neutral">{planLabels[restaurant.plan]}</AppBadge>
+              {activeTab === "categories" ? (
+                <>
+                  <AppBadge variant="neutral">{formatInteger(categories.length)} قسم</AppBadge>
+                  <AppBadge variant="neutral">
+                    {formatInteger(categories.length)} / {formatInteger(currentLimits.maxCategories)} قسم
+                  </AppBadge>
+                </>
+              ) : activeTab === "design" ? (
+                <>
+                  <AppBadge variant="neutral">{templateLabels[normalizeTemplate(restaurant.plan, form.template)]}</AppBadge>
+                  {hasUnsavedDesign ? <AppBadge variant="warning">غير محفوظ</AppBadge> : null}
+                </>
+              ) : activeTab === "details" ? (
+                <>
+                  <AppBadge variant="neutral">{restaurant.slug}</AppBadge>
+                  <AppBadge variant="neutral">{form.currency}</AppBadge>
+                </>
+              ) : (
+                <>
+                  <AppBadge variant="neutral">{formatInteger(items.length)} صنف</AppBadge>
+                  <AppBadge variant="neutral">
+                    {formatInteger(items.length)} / {formatInteger(currentLimits.maxItems)} عنصر
+                  </AppBadge>
+                </>
+              )}
             </div>
-            <p className="mt-2 max-w-2xl text-sm font-semibold leading-7 text-slate-500">
-              عدّل المنيو بسرعة. التغييرات تحفظ عند الضغط على زر الحفظ فقط، ومعاينة التصميم تعرض الشكل قبل الحفظ.
-            </p>
-          </div>
-          <a
-            href={`/${restaurant.slug}`}
-            target="_blank"
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-slate-950 px-4 text-sm font-black text-white transition hover:-translate-y-0.5 sm:hidden"
-          >
-            <Eye className="h-4 w-4" />
-            عرض المنيو
-          </a>
-        </section>
+          }
+        />
 
-        <nav className="sticky top-[65px] z-20 mb-4 flex gap-2 overflow-x-auto rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
+        <nav className="sticky top-[65px] z-20 mb-4 flex gap-2 overflow-x-auto rounded-app-lg border border-app-border bg-app-surface p-2" aria-label="أقسام إدارة المنيو">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             return (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`inline-flex h-11 min-w-fit items-center justify-center gap-2 rounded-md px-4 text-sm font-black transition ${
-                  activeTab === tab.id ? "bg-amber-500 text-white shadow-sm" : "text-slate-600 hover:bg-slate-50"
-                }`}
+                className={cn(
+                  "inline-flex h-10 min-w-fit items-center justify-center gap-2 rounded-app-md px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft",
+                  activeTab === tab.id ? "bg-app-primary-soft text-app-primary" : "text-app-muted hover:bg-app-surface-muted hover:text-app-ink"
+                )}
               >
                 <Icon className="h-4 w-4" />
                 {tab.label}
@@ -429,175 +476,237 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
         {message ? <MessageBox message={message} /> : null}
 
         {activeTab === "items" ? (
-          <Panel
-            title="الأصناف الحالية"
-            description="ابحث، فلتر حسب القسم، ثم اضغط تعديل لنسخ البيانات إلى النموذج."
-            action={
-              <button
-                type="button"
-                disabled={atItemLimit}
-                onClick={openNewItemForm}
-                className="inline-flex items-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                <Plus className="h-4 w-4" />
-                صنف جديد
-              </button>
-            }
-          >
+          <AppSurface className="p-4">
             {atItemLimit ? <Warning text={"وصلت إلى حد الأصناف في باقة " + planLabels[restaurant.plan] + "."} /> : null}
-            <div className="grid gap-3">
-              <label className="relative block">
-                <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="بحث سريع في الأصناف"
-                  className="h-11 w-full rounded-md border border-slate-200 bg-white px-10 font-bold outline-none transition focus:border-amber-400 focus:ring-4 focus:ring-amber-100"
-                />
-              </label>
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                <Chip active={categoryFilter === "all"} label="كل الأقسام" onClick={() => setCategoryFilter("all")} />
-                {categories.map((category) => (
-                  <Chip key={category.id} active={categoryFilter === category.id} label={category.name} onClick={() => setCategoryFilter(category.id)} />
-                ))}
-              </div>
-            </div>
-            <div className="mt-4 grid gap-3">
+            <div className="grid gap-4">
+              <AppToolbar
+                search={
+                  <label className="relative block">
+                    <Search className="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-app-muted" />
+                    <AppInput
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      placeholder="بحث سريع في المنتجات"
+                      className="h-10 pe-3 ps-10"
+                    />
+                  </label>
+                }
+                filters={
+                  <AppSelect value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className="min-w-[180px]">
+                    <option value="all">كل الأقسام</option>
+                    {categories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </AppSelect>
+                }
+                actions={
+                  <div className="flex items-center gap-2 text-app-meta text-app-muted">
+                    <span>{formatInteger(filteredItems.length)} نتيجة</span>
+                  </div>
+                }
+              />
+
               {filteredItems.length ? (
-                filteredItems.map((item) => (
-                  <ItemRow
-                    key={item.id}
-                    item={item}
+                <>
+                  <ProductTable
+                    items={filteredItems}
+                    categories={categories}
                     currency={restaurant.currency}
-                    recipeCount={recipes.filter((entry) => entry.menuItemId === item.id).length}
+                    recipes={recipes}
                     canEditRecipe={inventoryRecipesEnabled && inventoryItems.length > 0}
-                    onRecipe={() => openRecipeEditor(item)}
-                    categoryName={categories.find((category) => category.id === item.categoryId)?.name ?? "بدون قسم"}
-                    onEdit={() => editItem(item)}
-                    onDelete={() => void removeItem(item.id)}
+                    onRecipe={openRecipeEditor}
+                    onEdit={editItem}
+                    onDelete={setPendingDeleteItem}
                   />
-                ))
+                  <ProductMobileList
+                    items={filteredItems}
+                    categories={categories}
+                    currency={restaurant.currency}
+                    recipes={recipes}
+                    canEditRecipe={inventoryRecipesEnabled && inventoryItems.length > 0}
+                    onRecipe={openRecipeEditor}
+                    onEdit={editItem}
+                    onDelete={setPendingDeleteItem}
+                  />
+                </>
               ) : (
-                <EmptyState title="لا توجد أصناف مطابقة" text="جرّب مسح البحث أو تغيير القسم." />
+                <AppEmptyState
+                  title={items.length ? "لا توجد منتجات مطابقة" : "لا توجد منتجات بعد"}
+                  description={items.length ? "جرّب مسح البحث أو تغيير القسم." : "ابدأ بإضافة أول منتج إلى منيو مطعمك."}
+                  action={
+                    !items.length ? (
+                      <AppButton type="button" disabled={atItemLimit} onClick={openNewItemForm} iconStart={<Plus className="h-4 w-4" />}>
+                        إضافة منتج
+                      </AppButton>
+                    ) : null
+                  }
+                />
               )}
             </div>
-          </Panel>
+          </AppSurface>
         ) : null}
 
         {activeTab === "design" ? (
-          <form onSubmit={saveDesign} className="grid gap-4 xl:grid-cols-[minmax(360px,460px)_1fr]">
-            <Panel title="إعدادات التصميم" description="اختر القالب والألوان ثم راقب المعاينة قبل الحفظ.">
+          <form onSubmit={saveDesign} className="grid gap-4 xl:grid-cols-[minmax(360px,520px)_1fr]">
+            <AppSurface className="p-4">
               {hasUnsavedDesign ? <Warning text="هناك تغييرات غير محفوظة في التصميم. المعاينة تعرض الشكل الجديد قبل الحفظ." /> : null}
-              <div className="grid gap-3">
-                <SelectField
-                  label="القالب"
-                  value={normalizeTemplate(restaurant.plan, form.template)}
-                  options={allowedTemplates.map((template) => ({ value: template, label: templateLabels[template] }))}
-                  onChange={(template) => setForm({ ...form, template: template as MenuTemplate })}
-                />
-                <ReadOnlyField label="الباقة الحالية" value={planLabels[restaurant.plan]} />
-                <Field label="الشعار URL" value={form.logo} onChange={(logo) => setForm({ ...form, logo })} placeholder="اختياري" />
-                <Field label="صورة الغلاف URL" value={form.coverImage} onChange={(coverImage) => setForm({ ...form, coverImage })} placeholder="اختياري" />
-                <div className="grid gap-2">
-                  <p className="text-sm font-black">ألوان جاهزة</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {colorPresets.map((preset) => (
-                      <button
-                        key={preset.name}
-                        type="button"
-                        onClick={() => applyPreset(preset)}
-                        className="flex items-center gap-2 rounded-md border border-slate-200 bg-white p-2 text-sm font-black transition hover:border-amber-300"
-                      >
-                        <span className="h-6 w-6 rounded-full" style={{ backgroundColor: preset.primaryColor }} />
-                        {preset.name}
-                      </button>
-                    ))}
+              <div className="grid gap-4">
+                <ProductFormSection title="القالب">
+                  <TemplateSelector
+                    value={normalizeTemplate(restaurant.plan, form.template)}
+                    templates={allowedTemplates}
+                    onChange={(template) => setForm({ ...form, template })}
+                  />
+                  <AppFieldShell label="الباقة الحالية">
+                    <AppInput value={planLabels[restaurant.plan]} readOnly className="bg-app-surface-muted text-app-muted" />
+                  </AppFieldShell>
+                </ProductFormSection>
+
+                <ProductFormSection title="الهوية والصور">
+                  <DesignAssetField
+                    label="الشعار URL"
+                    value={form.logo}
+                    onChange={(logo) => setForm({ ...form, logo })}
+                    onUpload={(file) => uploadImage(file, (logo) => setForm((current) => ({ ...current, logo })))}
+                  />
+                  <DesignAssetField
+                    label="صورة الغلاف URL"
+                    value={form.coverImage}
+                    onChange={(coverImage) => setForm({ ...form, coverImage })}
+                    onUpload={(file) => uploadImage(file, (coverImage) => setForm((current) => ({ ...current, coverImage })))}
+                  />
+                </ProductFormSection>
+
+                <ProductFormSection title="الألوان">
+                  <div className="grid gap-2">
+                    <p className="text-app-label text-app-ink">ألوان جاهزة</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {colorPresets.map((preset) => (
+                        <button
+                          key={preset.name}
+                          type="button"
+                          onClick={() => applyPreset(preset)}
+                          className="flex h-10 items-center gap-2 rounded-app-md border border-app-border bg-app-surface px-3 text-sm font-semibold text-app-ink transition-colors hover:border-app-primary hover:bg-app-primary-soft focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft"
+                        >
+                          <span className="h-5 w-5 rounded-app-sm border border-app-border" style={{ backgroundColor: preset.primaryColor }} />
+                          {preset.name}
+                        </button>
+                      ))}
+                    </div>
                   </div>
+                  <AppColorField label="اللون الأساسي" value={form.theme.primaryColor} onChange={(value) => setTheme("primaryColor", value)} />
+                  <AppColorField label="اللون الثانوي" value={form.theme.secondaryColor} onChange={(value) => setTheme("secondaryColor", value)} />
+                  <AppColorField label="الخلفية" value={form.theme.backgroundColor} onChange={(value) => setTheme("backgroundColor", value)} />
+                  <AppColorField label="لون النص" value={form.theme.textColor} onChange={(value) => setTheme("textColor", value)} />
+                </ProductFormSection>
+
+                <div className="flex flex-wrap gap-2 border-t border-app-border pt-4">
+                  <AppButton type="submit" disabled={busy || !hasUnsavedDesign} loading={busy} iconStart={<Save className="h-4 w-4" />}>
+                    حفظ التصميم
+                  </AppButton>
                 </div>
-                <ColorField label="اللون الأساسي" value={form.theme.primaryColor} onChange={(value) => setTheme("primaryColor", value)} />
-                <ColorField label="اللون الثانوي" value={form.theme.secondaryColor} onChange={(value) => setTheme("secondaryColor", value)} />
-                <ColorField label="الخلفية" value={form.theme.backgroundColor} onChange={(value) => setTheme("backgroundColor", value)} />
-                <ColorField label="لون النص" value={form.theme.textColor} onChange={(value) => setTheme("textColor", value)} />
-                <PrimaryButton disabled={busy || !hasUnsavedDesign}>
-                  <Save className="h-4 w-4" />
-                  حفظ التصميم
-                </PrimaryButton>
               </div>
-            </Panel>
-            <Panel title="معاينة قبل الحفظ" description="هذه المعاينة تستخدم القيم الحالية في النموذج مباشرة.">
+            </AppSurface>
+            <AppSurface className="p-4">
+              <div className="mb-4">
+                <h2 className="text-app-panel-title font-semibold text-app-ink">معاينة قبل الحفظ</h2>
+                <p className="mt-1 text-app-helper text-app-muted">هذه المعاينة تستخدم القيم الحالية في النموذج مباشرة.</p>
+              </div>
               <AccurateMenuPreview form={form} plan={restaurant.plan} categories={activeCategories} items={items} />
-            </Panel>
+            </AppSurface>
           </form>
         ) : null}
 
         {activeTab === "details" ? (
-          <Panel title="بيانات المطعم" description="تظهر هذه المعلومات في صفحة المنيو العامة. الباقة لا يمكن تعديلها من حساب صاحب المطعم.">
-            <form onSubmit={saveDetails} className="grid gap-3 md:grid-cols-2">
-              <Field label="اسم المطعم" value={form.name} onChange={(name) => setForm({ ...form, name })} />
-              <Field label="Slug" value={form.slug} onChange={(slug) => setForm({ ...form, slug })} />
-              <Field label="الهاتف" value={form.phone} onChange={(phone) => setForm({ ...form, phone })} />
-              <Field label="العنوان" value={form.address} onChange={(address) => setForm({ ...form, address })} />
-              <Field label="العملة" value={form.currency} onChange={(currency) => setForm({ ...form, currency })} />
-              <Field label="اسم المطعم على الفاتورة" value={form.receiptRestaurantName ?? ""} onChange={(receiptRestaurantName) => setForm({ ...form, receiptRestaurantName })} />
-              <Field label="VAT" value={form.vatNumber ?? ""} onChange={(vatNumber) => setForm({ ...form, vatNumber })} />
-              <Field label="موقع الإيصال" value={form.receiptLocation ?? ""} onChange={(receiptLocation) => setForm({ ...form, receiptLocation })} />
-              <Field label="IP الطابعة" value={form.receiptPrinterIp ?? ""} onChange={(receiptPrinterIp) => setForm({ ...form, receiptPrinterIp })} />
-              <NumberField label="منفذ الطابعة" value={form.receiptPrinterPort ?? 9100} onChange={(receiptPrinterPort) => setForm({ ...form, receiptPrinterPort })} />
-              <ReadOnlyField label="الباقة" value={planLabels[restaurant.plan]} />
-              <div className="md:col-span-2">
-                <TextArea label="الوصف" value={form.description} onChange={(description) => setForm({ ...form, description })} />
-              </div>
-              <Toggle checked={form.isActive} label="المطعم فعال" onChange={(isActive) => setForm({ ...form, isActive })} />
-              <div className="md:col-span-2">
-                <FormErrors errors={detailsErrors} />
-                <PrimaryButton disabled={busy || detailsErrors.length > 0}>
-                  <Save className="h-4 w-4" />
+          <AppSurface className="p-4">
+            <form onSubmit={saveDetails} className="grid gap-4">
+              <ProductFormSection title="معلومات المنيو">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <AppFieldShell label="اسم المطعم">
+                    <AppInput value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} error={detailsErrors.some((error) => error.includes("اسم المطعم"))} />
+                  </AppFieldShell>
+                  <AppFieldShell label="Slug">
+                    <AppInput value={form.slug} onChange={(event) => setForm({ ...form, slug: event.target.value })} dir="ltr" error={detailsErrors.some((error) => error.includes("الرابط"))} />
+                  </AppFieldShell>
+                  <AppFieldShell label="الهاتف">
+                    <AppInput value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />
+                  </AppFieldShell>
+                  <AppFieldShell label="العنوان">
+                    <AppInput value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} />
+                  </AppFieldShell>
+                  <AppFieldShell label="العملة">
+                    <AppInput value={form.currency} onChange={(event) => setForm({ ...form, currency: event.target.value })} error={detailsErrors.some((error) => error.includes("العملة"))} />
+                  </AppFieldShell>
+                  <AppFieldShell label="الباقة">
+                    <AppInput value={planLabels[restaurant.plan]} readOnly className="bg-app-surface-muted text-app-muted" />
+                  </AppFieldShell>
+                </div>
+                <AppFieldShell label="الوصف">
+                  <AppTextarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
+                </AppFieldShell>
+                <ProductToggle checked={form.isActive} label="المطعم فعال" onChange={(isActive) => setForm({ ...form, isActive })} />
+              </ProductFormSection>
+
+              <ProductFormSection title="إعدادات الإيصال والطابعة">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <AppFieldShell label="اسم المطعم على الفاتورة">
+                    <AppInput value={form.receiptRestaurantName ?? ""} onChange={(event) => setForm({ ...form, receiptRestaurantName: event.target.value })} />
+                  </AppFieldShell>
+                  <AppFieldShell label="VAT">
+                    <AppInput value={form.vatNumber ?? ""} onChange={(event) => setForm({ ...form, vatNumber: event.target.value })} />
+                  </AppFieldShell>
+                  <AppFieldShell label="موقع الإيصال">
+                    <AppInput value={form.receiptLocation ?? ""} onChange={(event) => setForm({ ...form, receiptLocation: event.target.value })} />
+                  </AppFieldShell>
+                  <AppFieldShell label="IP الطابعة">
+                    <AppInput value={form.receiptPrinterIp ?? ""} onChange={(event) => setForm({ ...form, receiptPrinterIp: event.target.value })} dir="ltr" />
+                  </AppFieldShell>
+                  <AppFieldShell label="منفذ الطابعة">
+                    <AppInput
+                      value={form.receiptPrinterPort ?? 9100}
+                      onChange={(event) => setForm({ ...form, receiptPrinterPort: Number(event.target.value) })}
+                      type="number"
+                      min="0"
+                      inputMode="numeric"
+                    />
+                  </AppFieldShell>
+                </div>
+              </ProductFormSection>
+
+              <FormErrors errors={detailsErrors} />
+              <div className="flex flex-wrap gap-2 border-t border-app-border pt-4">
+                <AppButton type="submit" disabled={busy || detailsErrors.length > 0} loading={busy} iconStart={<Save className="h-4 w-4" />}>
                   حفظ البيانات
-                </PrimaryButton>
+                </AppButton>
               </div>
             </form>
-          </Panel>
+          </AppSurface>
         ) : null}
 
         {activeTab === "categories" ? (
-          <Panel
-            title="الأقسام الحالية"
-            description="يمكن إخفاء قسم بدون حذفه عبر تعديل حالته."
-            action={
-              <button
-                type="button"
-                disabled={atCategoryLimit}
-                onClick={openNewCategoryForm}
-                className="inline-flex items-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                <Plus className="h-4 w-4" />
-                قسم جديد
-              </button>
-            }
-          >
+          <AppSurface className="p-4">
             {atCategoryLimit ? <Warning text={"وصلت إلى حد الأقسام في باقة " + planLabels[restaurant.plan] + "."} /> : null}
-            <div className="grid gap-3">
-              {categories.length ? (
-                categories.map((category) => (
-                  <ListRow
-                    key={category.id}
-                    title={category.name}
-                    meta={"ترتيب " + category.order + " - " + (category.isActive ? "ظاهر" : "مخفي")}
-                    muted={!category.isActive}
-                  >
-                    <IconButton label="تعديل" onClick={() => editCategory(category)}>
-                      <Save className="h-4 w-4" />
-                    </IconButton>
-                    <IconButton label="حذف" onClick={() => void removeCategory(category.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </IconButton>
-                  </ListRow>
-                ))
-              ) : (
-                <EmptyState title="لا توجد أقسام بعد" text="أضف أول قسم لتبدأ ترتيب المنيو." />
-              )}
-            </div>
-          </Panel>
+            {categories.length ? (
+              <CategoryList
+                categories={categories}
+                items={items}
+                onEdit={editCategory}
+                onDelete={setPendingDeleteCategory}
+              />
+            ) : (
+              <AppEmptyState
+                title="لا توجد أقسام بعد"
+                description="ابدأ بإنشاء أول قسم لتنظيم أصناف المنيو."
+                action={
+                  <AppButton type="button" disabled={atCategoryLimit} onClick={openNewCategoryForm} iconStart={<Plus className="h-4 w-4" />}>
+                    إضافة قسم
+                  </AppButton>
+                }
+              />
+            )}
+          </AppSurface>
         ) : null}
 
         <PopupForm
@@ -611,48 +720,136 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
             <Warning text="أضف قسماً أولاً قبل إضافة الأصناف." />
           ) : null}
           {atItemLimit ? <Warning text={"وصلت إلى حد الأصناف في باقة " + planLabels[restaurant.plan] + "."} /> : null}
-          <form onSubmit={saveItem} className="grid gap-3">
-            <Field label="اسم الصنف" value={itemForm.name} onChange={(name) => setItemForm({ ...itemForm, name })} placeholder="مثال: برغر كلاسيك" />
-            <div className="grid gap-3 sm:grid-cols-2">
-              <NumberField label="السعر" value={itemForm.price} onChange={(price) => setItemForm({ ...itemForm, price })} />
-              <NumberField label="الترتيب" value={itemForm.order} onChange={(order) => setItemForm({ ...itemForm, order })} />
-            </div>
-            <SelectField
-              label="القسم"
-              value={itemForm.categoryId}
-              options={[{ value: "", label: "اختر قسماً" }, ...categories.map((category) => ({ value: category.id, label: category.name }))]}
-              onChange={(categoryId) => setItemForm({ ...itemForm, categoryId })}
-            />
-            <Field label="رابط الصورة" value={itemForm.image} onChange={(image) => setItemForm({ ...itemForm, image })} placeholder="https://..." />
-            <TextArea label="الوصف" value={itemForm.description} onChange={(description) => setItemForm({ ...itemForm, description })} />
-            <ImageUpload label="رفع صورة الصنف" onUpload={(file) => uploadImage(file, (url) => setItemForm((current) => ({ ...current, image: url })))} />
-            <div className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-3">
-              <p className="text-sm font-black">الحالة والوسوم</p>
+          <form onSubmit={saveItem} className="grid gap-4">
+            <ProductFormSection title="المعلومات الأساسية">
+              <AppFieldShell label="اسم المنتج">
+                <AppInput
+                  value={itemForm.name}
+                  onChange={(event) => setItemForm({ ...itemForm, name: event.target.value })}
+                  placeholder="مثال: برغر كلاسيك"
+                  error={itemErrors.some((error) => error.includes("اسم الصنف"))}
+                />
+              </AppFieldShell>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <AppFieldShell label="السعر">
+                  <AppInput
+                    value={Number.isFinite(itemForm.price) ? itemForm.price : 0}
+                    onChange={(event) => setItemForm({ ...itemForm, price: Number(event.target.value) })}
+                    type="number"
+                    min="0"
+                    inputMode="decimal"
+                    error={itemErrors.some((error) => error.includes("السعر"))}
+                  />
+                </AppFieldShell>
+                <AppFieldShell label="الترتيب">
+                  <AppInput
+                    value={Number.isFinite(itemForm.order) ? itemForm.order : 0}
+                    onChange={(event) => setItemForm({ ...itemForm, order: Number(event.target.value) })}
+                    type="number"
+                    min="0"
+                    inputMode="numeric"
+                  />
+                </AppFieldShell>
+              </div>
+              <AppFieldShell label="القسم">
+                <AppSelect
+                  value={itemForm.categoryId}
+                  onChange={(event) => setItemForm({ ...itemForm, categoryId: event.target.value })}
+                  error={itemErrors.some((error) => error.includes("القسم"))}
+                >
+                  <option value="">اختر قسماً</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </AppSelect>
+              </AppFieldShell>
+              <AppFieldShell label="الوصف">
+                <AppTextarea
+                  value={itemForm.description}
+                  onChange={(event) => setItemForm({ ...itemForm, description: event.target.value })}
+                />
+              </AppFieldShell>
+            </ProductFormSection>
+
+            <ProductFormSection title="الصورة">
+              <div className="grid gap-3 sm:grid-cols-[72px_1fr] sm:items-start">
+                <div className="grid h-[72px] w-[72px] place-items-center overflow-hidden rounded-app-lg border border-app-border bg-app-surface-muted text-app-muted">
+                  {itemForm.image ? (
+                    <img src={itemForm.image} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <ImageIcon className="h-6 w-6" />
+                  )}
+                </div>
+                <div className="grid gap-3">
+                  <AppFieldShell label="رابط الصورة">
+                    <AppInput
+                      value={itemForm.image}
+                      onChange={(event) => setItemForm({ ...itemForm, image: event.target.value })}
+                      placeholder="https://..."
+                      dir="ltr"
+                    />
+                  </AppFieldShell>
+                  <ProductImageUpload
+                    onUpload={(file) => uploadImage(file, (url) => setItemForm((current) => ({ ...current, image: url })))}
+                  />
+                </div>
+              </div>
+            </ProductFormSection>
+
+            <ProductFormSection title="الحالة والوسوم">
               <div className="flex flex-wrap gap-2">
-                <Toggle checked={itemForm.isAvailable} label="متاح" onChange={(isAvailable) => setItemForm({ ...itemForm, isAvailable })} />
-                <Toggle
+                <ProductToggle checked={itemForm.isAvailable} label="متاح" onChange={(isAvailable) => setItemForm({ ...itemForm, isAvailable })} />
+                <ProductToggle
                   checked={restaurant.plan === "premium" && itemForm.isFeatured}
                   disabled={restaurant.plan !== "premium"}
                   label="مميز"
                   onChange={(isFeatured) => setItemForm({ ...itemForm, isFeatured })}
                 />
                 {badgeOptions.map((badge) => (
-                  <Toggle key={badge.value} checked={itemForm.badges.includes(badge.value)} label={badge.label} onChange={() => toggleBadge(badge.value)} />
+                  <ProductToggle key={badge.value} checked={itemForm.badges.includes(badge.value)} label={badge.label} onChange={() => toggleBadge(badge.value)} />
                 ))}
               </div>
-              {restaurant.plan !== "premium" ? <p className="text-xs font-bold text-slate-500">تمييز الأصناف متاح فقط في باقة Premium.</p> : null}
-            </div>
+              {restaurant.plan !== "premium" ? <p className="text-app-helper text-app-muted">تمييز الأصناف متاح فقط في باقة Premium.</p> : null}
+            </ProductFormSection>
+
             <FormErrors errors={itemErrors} />
-            <div className="flex flex-wrap gap-2">
-              <PrimaryButton disabled={busy || itemErrors.length > 0 || atItemLimit}>
-                <Save className="h-4 w-4" />
+            <div className="flex flex-wrap gap-2 border-t border-app-border pt-4">
+              <AppButton type="submit" disabled={busy || itemErrors.length > 0 || atItemLimit} loading={busy} iconStart={<Save className="h-4 w-4" />}>
                 {editingItemId ? "حفظ التعديل" : "إضافة الصنف"}
-              </PrimaryButton>
-              <button type="button" onClick={closeItemForm} className="h-12 rounded-md border border-slate-200 bg-white px-4 font-black text-slate-700">
+              </AppButton>
+              <AppButton type="button" variant="secondary" onClick={closeItemForm}>
                 إلغاء
-              </button>
+              </AppButton>
             </div>
           </form>
+        </PopupForm>
+
+        <PopupForm
+          open={Boolean(pendingDeleteItem)}
+          onClose={() => setPendingDeleteItem(null)}
+          title="حذف المنتج؟"
+          description={pendingDeleteItem ? `سيتم حذف "${pendingDeleteItem.name}" من المنيو. لا يمكن التراجع عن هذا الإجراء.` : undefined}
+          maxWidth="sm"
+        >
+          <div className="flex flex-wrap justify-end gap-2">
+            <AppButton type="button" variant="secondary" onClick={() => setPendingDeleteItem(null)}>
+              إلغاء
+            </AppButton>
+            <AppButton
+              type="button"
+              variant="destructive"
+              disabled={busy || !pendingDeleteItem}
+              loading={busy}
+              onClick={() => {
+                if (pendingDeleteItem) void removeItem(pendingDeleteItem.id);
+              }}
+              iconStart={<Trash2 className="h-4 w-4" />}
+            >
+              حذف المنتج
+            </AppButton>
+          </div>
         </PopupForm>
 
         <PopupForm
@@ -663,21 +860,69 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
           maxWidth="md"
         >
           {atCategoryLimit ? <Warning text={"وصلت إلى حد الأقسام في باقة " + planLabels[restaurant.plan] + "."} /> : null}
-          <form onSubmit={saveCategory} className="grid gap-3">
-            <Field label="اسم القسم" value={categoryForm.name} onChange={(name) => setCategoryForm({ ...categoryForm, name })} />
-            <NumberField label="الترتيب" value={categoryForm.order} onChange={(order) => setCategoryForm({ ...categoryForm, order })} />
-            <Toggle checked={categoryForm.isActive} label="القسم ظاهر" onChange={(isActive) => setCategoryForm({ ...categoryForm, isActive })} />
+          <form onSubmit={saveCategory} className="grid gap-4">
+            <ProductFormSection title="بيانات القسم">
+              <AppFieldShell label="اسم القسم">
+                <AppInput
+                  value={categoryForm.name}
+                  onChange={(event) => setCategoryForm({ ...categoryForm, name: event.target.value })}
+                  error={categoryErrors.some((error) => error.includes("اسم القسم"))}
+                />
+              </AppFieldShell>
+              <AppFieldShell label="الترتيب" helperText="الأرقام الأصغر تظهر أولاً في المنيو.">
+                <AppInput
+                  value={Number.isFinite(categoryForm.order) ? categoryForm.order : 0}
+                  onChange={(event) => setCategoryForm({ ...categoryForm, order: Number(event.target.value) })}
+                  type="number"
+                  min="0"
+                  inputMode="numeric"
+                  error={categoryErrors.some((error) => error.includes("الترتيب"))}
+                />
+              </AppFieldShell>
+              <ProductToggle checked={categoryForm.isActive} label="القسم ظاهر" onChange={(isActive) => setCategoryForm({ ...categoryForm, isActive })} />
+            </ProductFormSection>
             <FormErrors errors={categoryErrors} />
-            <div className="flex flex-wrap gap-2">
-              <PrimaryButton disabled={busy || categoryErrors.length > 0 || atCategoryLimit}>
-                <Save className="h-4 w-4" />
+            <div className="flex flex-wrap gap-2 border-t border-app-border pt-4">
+              <AppButton type="submit" disabled={busy || categoryErrors.length > 0 || atCategoryLimit} loading={busy} iconStart={<Save className="h-4 w-4" />}>
                 {editingCategoryId ? "حفظ القسم" : "إضافة القسم"}
-              </PrimaryButton>
-              <button type="button" onClick={closeCategoryForm} className="h-12 rounded-md border border-slate-200 bg-white px-4 font-black text-slate-700">
+              </AppButton>
+              <AppButton type="button" variant="secondary" onClick={closeCategoryForm}>
                 إلغاء
-              </button>
+              </AppButton>
             </div>
           </form>
+        </PopupForm>
+
+        <PopupForm
+          open={Boolean(pendingDeleteCategory)}
+          onClose={() => setPendingDeleteCategory(null)}
+          title="حذف القسم؟"
+          description={
+            pendingDeleteCategory
+              ? getCategoryProductCount(pendingDeleteCategory, items) > 0
+                ? `القسم "${pendingDeleteCategory.name}" يحتوي أصنافاً. حذف القسم قد يترك هذه الأصناف بلا قسم.`
+                : `سيتم حذف القسم "${pendingDeleteCategory.name}" من المنيو.`
+              : undefined
+          }
+          maxWidth="sm"
+        >
+          <div className="flex flex-wrap justify-end gap-2">
+            <AppButton type="button" variant="secondary" onClick={() => setPendingDeleteCategory(null)}>
+              إلغاء
+            </AppButton>
+            <AppButton
+              type="button"
+              variant="destructive"
+              disabled={busy || !pendingDeleteCategory}
+              loading={busy}
+              onClick={() => {
+                if (pendingDeleteCategory) void removeCategory(pendingDeleteCategory.id);
+              }}
+              iconStart={<Trash2 className="h-4 w-4" />}
+            >
+              حذف القسم
+            </AppButton>
+          </div>
         </PopupForm>
 
         <OwnerRecipeEditorModal
@@ -792,6 +1037,436 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
     window.localStorage.removeItem("menu-owner-token");
     window.location.href = "/owner/login";
   }
+}
+
+function CategoryList({
+  categories,
+  items,
+  onEdit,
+  onDelete
+}: {
+  categories: Category[];
+  items: MenuItem[];
+  onEdit: (category: Category) => void;
+  onDelete: (category: Category) => void;
+}) {
+  return (
+    <>
+      <div className="hidden overflow-hidden rounded-app-lg border border-app-border bg-app-surface md:block">
+        <table className="w-full table-fixed text-app-table">
+          <thead className="bg-app-surface-muted text-app-meta text-app-muted">
+            <tr className="[&>th]:border-b [&>th]:border-app-border [&>th]:px-3 [&>th]:py-2.5 [&>th]:text-start [&>th]:font-semibold">
+              <th className="w-24">الترتيب</th>
+              <th>اسم القسم</th>
+              <th className="w-36">الأصناف</th>
+              <th className="w-36">الحالة</th>
+              <th className="w-40">الإجراءات</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-app-border">
+            {categories.map((category) => (
+              <tr key={category.id} className={cn("transition-colors hover:bg-app-surface-muted", !category.isActive && "opacity-65")}>
+                <td className="px-3 py-3 font-semibold text-app-muted">{formatInteger(category.order)}</td>
+                <td className="px-3 py-3">
+                  <p className="truncate font-semibold text-app-ink">{category.name}</p>
+                </td>
+                <td className="px-3 py-3 text-app-muted">{formatInteger(getCategoryProductCount(category, items))} صنف</td>
+                <td className="px-3 py-3">
+                  <AppBadge variant={category.isActive ? "success" : "danger"}>{category.isActive ? "ظاهر" : "مخفي"}</AppBadge>
+                </td>
+                <td className="px-3 py-3">
+                  <CategoryActions category={category} onEdit={onEdit} onDelete={onDelete} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="grid gap-2 md:hidden">
+        {categories.map((category) => (
+          <article
+            key={category.id}
+            className={cn("rounded-app-lg border border-app-border bg-app-surface p-3", !category.isActive && "opacity-65")}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-app-ink">{category.name}</p>
+                <p className="mt-1 text-app-meta text-app-muted">
+                  ترتيب {formatInteger(category.order)} · {formatInteger(getCategoryProductCount(category, items))} صنف
+                </p>
+              </div>
+              <AppBadge variant={category.isActive ? "success" : "danger"}>{category.isActive ? "ظاهر" : "مخفي"}</AppBadge>
+            </div>
+            <div className="mt-3">
+              <CategoryActions category={category} onEdit={onEdit} onDelete={onDelete} />
+            </div>
+          </article>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function CategoryActions({
+  category,
+  onEdit,
+  onDelete
+}: {
+  category: Category;
+  onEdit: (category: Category) => void;
+  onDelete: (category: Category) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <AppButton type="button" variant="secondary" size="sm" onClick={() => onEdit(category)} iconStart={<Pencil className="h-4 w-4" />}>
+        تعديل
+      </AppButton>
+      <AppButton type="button" variant="ghost" size="sm" onClick={() => onDelete(category)} className="text-app-danger hover:bg-app-danger-soft" iconStart={<Trash2 className="h-4 w-4" />}>
+        حذف
+      </AppButton>
+    </div>
+  );
+}
+
+function TemplateSelector({
+  value,
+  templates,
+  onChange
+}: {
+  value: MenuTemplate;
+  templates: MenuTemplate[];
+  onChange: (template: MenuTemplate) => void;
+}) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {templates.map((template) => (
+        <button
+          key={template}
+          type="button"
+          onClick={() => onChange(template)}
+          className={cn(
+            "rounded-app-lg border p-3 text-start transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft",
+            value === template
+              ? "border-app-primary bg-app-primary-soft text-app-primary"
+              : "border-app-border bg-app-surface text-app-ink hover:border-app-border-strong hover:bg-app-surface-muted"
+          )}
+        >
+          <span className="block text-sm font-semibold">{templateLabels[template]}</span>
+          <span className="mt-1 block text-app-helper text-app-muted">{template}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function DesignAssetField({
+  label,
+  value,
+  onChange,
+  onUpload
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  onUpload: (file: File) => void;
+}) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-[72px_1fr] sm:items-start">
+      <div className="grid h-[72px] w-[72px] place-items-center overflow-hidden rounded-app-lg border border-app-border bg-app-surface-muted text-app-muted">
+        {value ? <img src={value} alt="" className="h-full w-full object-cover" /> : <ImageIcon className="h-6 w-6" />}
+      </div>
+      <div className="grid gap-3">
+        <AppFieldShell label={label}>
+          <AppInput value={value} onChange={(event) => onChange(event.target.value)} placeholder="https://..." dir="ltr" />
+        </AppFieldShell>
+        <ProductImageUpload label="رفع الصورة" onUpload={onUpload} />
+      </div>
+    </div>
+  );
+}
+
+function AppColorField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <AppFieldShell label={label}>
+      <div className="flex gap-2">
+        <AppInput value={value} onChange={(event) => onChange(event.target.value)} dir="ltr" className="min-w-0 flex-1" />
+        <input
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          type="color"
+          className="h-10 w-14 shrink-0 rounded-app-md border border-app-border bg-app-surface"
+          aria-label={label}
+        />
+      </div>
+    </AppFieldShell>
+  );
+}
+
+function ProductTable({
+  items,
+  categories,
+  currency,
+  recipes,
+  canEditRecipe,
+  onRecipe,
+  onEdit,
+  onDelete
+}: {
+  items: MenuItem[];
+  categories: Category[];
+  currency: string;
+  recipes: RecipeIngredient[];
+  canEditRecipe: boolean;
+  onRecipe: (item: MenuItem) => void;
+  onEdit: (item: MenuItem) => void;
+  onDelete: (item: MenuItem) => void;
+}) {
+  return (
+    <div className="hidden overflow-hidden rounded-app-lg border border-app-border bg-app-surface md:block">
+      <table className="w-full table-fixed text-app-table">
+        <thead className="bg-app-surface-muted text-app-meta text-app-muted">
+          <tr className="[&>th]:border-b [&>th]:border-app-border [&>th]:px-3 [&>th]:py-2.5 [&>th]:text-start [&>th]:font-semibold">
+            <th className="w-20">صورة</th>
+            <th>اسم المنتج</th>
+            <th className="w-40">القسم</th>
+            <th className="w-36">السعر</th>
+            <th className="w-36">الحالة</th>
+            <th className="w-44">الإجراءات</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-app-border">
+          {items.map((item) => {
+            const recipeCount = getProductRecipeCount(item, recipes);
+            return (
+              <tr key={item.id} className={cn("transition-colors hover:bg-app-surface-muted", !item.isAvailable && "opacity-65")}>
+                <td className="px-3 py-3">
+                  <ProductThumbnail item={item} />
+                </td>
+                <td className="px-3 py-3 align-middle">
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <p className="truncate font-semibold text-app-ink">{item.name}</p>
+                      {item.isFeatured ? <AppBadge variant="warning">مميز</AppBadge> : null}
+                    </div>
+                    {item.description ? <p className="mt-1 line-clamp-1 text-app-helper text-app-muted">{item.description}</p> : null}
+                    <RecipeMeta recipeCount={recipeCount} />
+                  </div>
+                </td>
+                <td className="px-3 py-3 text-app-muted">{getCategoryName(item, categories)}</td>
+                <td className="px-3 py-3 font-semibold text-app-ink">{formatMoney(item.price, currency)}</td>
+                <td className="px-3 py-3">
+                  <AvailabilityBadge available={item.isAvailable} />
+                </td>
+                <td className="px-3 py-3">
+                  <ProductActions
+                    item={item}
+                    canEditRecipe={canEditRecipe}
+                    onRecipe={onRecipe}
+                    onEdit={onEdit}
+                    onDelete={onDelete}
+                  />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ProductMobileList({
+  items,
+  categories,
+  currency,
+  recipes,
+  canEditRecipe,
+  onRecipe,
+  onEdit,
+  onDelete
+}: {
+  items: MenuItem[];
+  categories: Category[];
+  currency: string;
+  recipes: RecipeIngredient[];
+  canEditRecipe: boolean;
+  onRecipe: (item: MenuItem) => void;
+  onEdit: (item: MenuItem) => void;
+  onDelete: (item: MenuItem) => void;
+}) {
+  return (
+    <div className="grid gap-2 md:hidden">
+      {items.map((item) => {
+        const recipeCount = getProductRecipeCount(item, recipes);
+        return (
+          <article
+            key={item.id}
+            className={cn("rounded-app-lg border border-app-border bg-app-surface p-3", !item.isAvailable && "opacity-65")}
+          >
+            <div className="flex items-start gap-3">
+              <ProductThumbnail item={item} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-app-ink">{item.name}</p>
+                    <p className="mt-0.5 text-app-meta text-app-muted">{getCategoryName(item, categories)}</p>
+                  </div>
+                  <AvailabilityBadge available={item.isAvailable} />
+                </div>
+                <p className="mt-2 font-semibold text-app-ink">{formatMoney(item.price, currency)}</p>
+                {item.description ? <p className="mt-1 line-clamp-2 text-app-helper text-app-muted">{item.description}</p> : null}
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {item.isFeatured ? <AppBadge variant="warning">مميز</AppBadge> : null}
+                  <RecipeMeta recipeCount={recipeCount} />
+                </div>
+              </div>
+            </div>
+            <div className="mt-3">
+              <ProductActions
+                item={item}
+                canEditRecipe={canEditRecipe}
+                onRecipe={onRecipe}
+                onEdit={onEdit}
+                onDelete={onDelete}
+              />
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function ProductThumbnail({ item }: { item: MenuItem }) {
+  if (!item.image) {
+    return (
+      <div className="grid h-12 w-12 shrink-0 place-items-center rounded-app-md border border-app-border bg-app-surface-muted text-app-muted">
+        <ImageIcon className="h-5 w-5" />
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={item.image}
+      alt=""
+      loading="lazy"
+      className="h-12 w-12 shrink-0 rounded-app-md border border-app-border object-cover"
+    />
+  );
+}
+
+function AvailabilityBadge({ available }: { available: boolean }) {
+  return <AppBadge variant={available ? "success" : "danger"}>{available ? "متوفر" : "غير متوفر"}</AppBadge>;
+}
+
+function RecipeMeta({ recipeCount }: { recipeCount: number }) {
+  return (
+    <span className={cn("text-app-helper font-medium", recipeCount ? "text-app-success" : "text-app-muted")}>
+      {recipeCount ? `${formatInteger(recipeCount)} مكونات مرتبطة` : "لا توجد مكونات مخزون"}
+    </span>
+  );
+}
+
+function ProductActions({
+  item,
+  canEditRecipe,
+  onRecipe,
+  onEdit,
+  onDelete
+}: {
+  item: MenuItem;
+  canEditRecipe: boolean;
+  onRecipe: (item: MenuItem) => void;
+  onEdit: (item: MenuItem) => void;
+  onDelete: (item: MenuItem) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {canEditRecipe ? (
+        <AppButton type="button" variant="secondary" size="sm" onClick={() => onRecipe(item)} iconStart={<Boxes className="h-4 w-4" />}>
+          المكونات
+        </AppButton>
+      ) : null}
+      <AppButton type="button" variant="secondary" size="sm" onClick={() => onEdit(item)} iconStart={<Pencil className="h-4 w-4" />}>
+        تعديل
+      </AppButton>
+      <AppButton type="button" variant="ghost" size="sm" onClick={() => onDelete(item)} className="text-app-danger hover:bg-app-danger-soft" iconStart={<Trash2 className="h-4 w-4" />}>
+        حذف
+      </AppButton>
+    </div>
+  );
+}
+
+function ProductFormSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="grid gap-3 border-b border-app-border pb-4 last:border-b-0 last:pb-0">
+      <h3 className="text-app-panel-title font-semibold text-app-ink">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function ProductImageUpload({ label = "رفع صورة المنتج", onUpload }: { label?: string; onUpload: (file: File) => void }) {
+  return (
+    <label className="block rounded-app-md border border-app-border bg-app-surface-muted p-3 text-app-label text-app-ink transition-colors hover:border-app-border-strong">
+      <span>{label}</span>
+      <input
+        type="file"
+        accept="image/*"
+        className="mt-2 block w-full text-app-helper text-app-muted file:me-3 file:rounded-app-md file:border-0 file:bg-app-ink file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) onUpload(file);
+          event.currentTarget.value = "";
+        }}
+      />
+    </label>
+  );
+}
+
+function ProductToggle({
+  checked,
+  label,
+  disabled = false,
+  onChange
+}: {
+  checked: boolean;
+  label: string;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label
+      className={cn(
+        "inline-flex h-9 items-center gap-2 rounded-app-md border px-3 text-sm font-semibold transition-colors",
+        checked ? "border-app-primary bg-app-primary-soft text-app-primary" : "border-app-border bg-app-surface text-app-muted",
+        disabled ? "cursor-not-allowed opacity-45" : "cursor-pointer hover:border-app-primary hover:bg-app-primary-soft hover:text-app-primary"
+      )}
+    >
+      <input
+        type="checkbox"
+        className="h-4 w-4 accent-[var(--app-primary)]"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      {label}
+    </label>
+  );
+}
+
+function getCategoryName(item: MenuItem, categories: Category[]) {
+  return categories.find((category) => category.id === item.categoryId)?.name ?? "بدون قسم";
+}
+
+function getCategoryProductCount(category: Category, items: MenuItem[]) {
+  return items.filter((item) => item.categoryId === category.id).length;
+}
+
+function getProductRecipeCount(item: MenuItem, recipes: RecipeIngredient[]) {
+  return recipes.filter((entry) => entry.menuItemId === item.id).length;
 }
 
 function toRestaurantForm(restaurant: Restaurant): RestaurantForm {

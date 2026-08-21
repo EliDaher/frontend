@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+
+<html dir="rtl" lang="ar"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>DMenu - القائمة الذكية لمطعمك</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "outline": "#767586",
+                        "primary-fixed": "#e1e0ff",
+                        "surface": "#faf8ff",
+                        "tertiary-fixed": "#e3e2df",
+                        "primary": "#4143d5",
+                        "inverse-on-surface": "#f1f0f8",
+                        "error-container": "#ffdad6",
+                        "on-surface-variant": "#464555",
+                        "on-primary": "#ffffff",
+                        "surface-dim": "#dad9e1",
+                        "background": "#F7F6F2",
+                        "on-primary-fixed": "#05006c",
+                        "surface-container": "#eeedf5",
+                        "on-error-container": "#93000a",
+                        "on-primary-container": "#f9f6ff",
+                        "on-error": "#ffffff",
+                        "primary-container": "#5b5fef",
+                        "on-background": "#1a1b21",
+                        "on-tertiary": "#ffffff",
+                        "on-secondary": "#ffffff",
+                        "secondary-container": "#e4e1e7",
+                        "inverse-surface": "#2f3036",
+                        "primary-fixed-dim": "#c0c1ff",
+                        "inverse-primary": "#c0c1ff",
+                        "surface-bright": "#faf8ff",
+                        "error": "#ba1a1a",
+                        "on-tertiary-fixed-variant": "#464744",
+                        "secondary-fixed-dim": "#c8c5cb",
+                        "secondary": "#5f5e63",
+                        "secondary-fixed": "#e4e1e7",
+                        "on-surface": "#1a1b21",
+                        "on-secondary-container": "#656469",
+                        "tertiary-container": "#71726f",
+                        "outline-variant": "#c6c5d7",
+                        "surface-container-low": "#f4f2fb",
+                        "tertiary": "#595957",
+                        "on-secondary-fixed": "#1b1b1f",
+                        "surface-container-high": "#e9e7ef",
+                        "on-tertiary-container": "#f9f8f4",
+                        "surface-variant": "#e3e1ea",
+                        "on-tertiary-fixed": "#1b1c1a",
+                        "tertiary-fixed-dim": "#c7c7c3",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-tint": "#474adb",
+                        "on-secondary-fixed-variant": "#47464b",
+                        "on-primary-fixed-variant": "#2c2cc3",
+                        "surface-container-highest": "#e3e1ea",
+                        "dark-ink": "#16161a",
+                        "subtle-border": "#e8e6e1",
+                        "muted-text": "#71726f"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "sm": "8px",
+                        "xl": "48px",
+                        "gutter": "24px",
+                        "lg": "24px",
+                        "margin": "32px",
+                        "md": "16px",
+                        "xs": "4px",
+                        "xxl": "80px",
+                        "unit": "8px"
+                    },
+                    "fontFamily": {
+                        "display-xl-mobile": ["IBM Plex Sans Arabic"],
+                        "headline-lg": ["IBM Plex Sans Arabic"],
+                        "label-sm": ["IBM Plex Sans Arabic"],
+                        "display-xl": ["IBM Plex Sans Arabic"],
+                        "body-lg": ["IBM Plex Sans Arabic"],
+                        "body-md": ["IBM Plex Sans Arabic"],
+                        "headline-md": ["IBM Plex Sans Arabic"]
+                    },
+                    "fontSize": {
+                        "display-xl-mobile": ["48px", {"lineHeight": "1.1", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "headline-lg": ["32px", {"lineHeight": "1.25", "fontWeight": "600"}],
+                        "label-sm": ["13px", {"lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                        "display-xl": ["72px", {"lineHeight": "1.05", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                        "body-lg": ["20px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                        "body-md": ["16px", {"lineHeight": "1.5", "fontWeight": "400"}],
+                        "headline-md": ["28px", {"lineHeight": "1.3", "fontWeight": "500"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { background-color: #F7F6F2; }
+        .grid-bg {
+            background-image: linear-gradient(to right, #e8e6e1 1px, transparent 1px), linear-gradient(to bottom, #e8e6e1 1px, transparent 1px);
+            background-size: 8px 8px;
+        }
+    </style>
+</head>
+<body class="font-body-md text-on-background antialiased selection:bg-primary-container selection:text-on-primary-container min-h-screen flex flex-col">
+<!-- 1. Navbar -->
+<nav class="sticky top-0 w-full bg-background/90 backdrop-blur-md dark:bg-background/90 z-50 transition-colors duration-300">
+<div class="flex flex-row justify-between items-center px-gutter py-md max-w-7xl mx-auto w-full border-b border-subtle-border">
+<div class="font-headline-lg text-headline-md font-bold text-dark-ink tracking-tight">DMenu</div>
+<div class="hidden md:flex gap-xl items-center">
+<a class="text-dark-ink font-medium font-body-md text-body-md hover:opacity-70 transition-opacity" href="#">الرئيسية</a>
+<a class="text-secondary hover:text-dark-ink transition-colors duration-200 font-body-md text-body-md" href="#">المميزات</a>
+<a class="text-secondary hover:text-dark-ink transition-colors duration-200 font-body-md text-body-md" href="#">القوالب</a>
+<a class="text-secondary hover:text-dark-ink transition-colors duration-200 font-body-md text-body-md" href="#">الأسعار</a>
+</div>
+<button class="bg-dark-ink text-white px-lg py-sm rounded-none font-body-md text-body-md hover:bg-opacity-90 transition-opacity">ابدأ الآن</button>
+</div>
+</nav>
+<main class="flex-grow">
+<!-- 2. Hero -->
+<section class="max-w-7xl mx-auto px-gutter pt-16 pb-12 grid grid-cols-1 md:grid-cols-12 gap-12 items-center min-h-[75vh] overflow-visible"><div class="md:col-span-5 flex flex-col gap-lg order-2 md:order-2 z-10">
+<div class="flex flex-col gap-4 mb-4">
+<div class="flex items-center gap-4">
+<span class="font-label-sm text-label-sm text-muted-text uppercase tracking-widest">DMenu — منيو إلكتروني للمطاعم</span>
+<div class="h-[1px] w-12 bg-muted-text/30"></div>
+</div>
+<h1 class="font-display-xl-mobile md:font-display-xl text-display-xl-mobile md:text-display-xl text-dark-ink leading-[1.05] tracking-tight">
+            منيو مطعمك،<br/>بطريقة تليق<br/>بعلامتك.
+        </h1>
+</div>
+<p class="font-body-lg text-body-lg text-secondary max-w-md leading-relaxed">
+        تخلص من قوائم الـ PDF التقليدية. أنشئ قائمة طعام تفاعلية، سريعة، ومصممة بأناقة تعكس هوية مطعمك في دقائق معدودة.
+    </p>
+<div class="flex flex-col gap-6 mt-8">
+<div class="flex flex-col sm:flex-row items-start sm:items-center gap-lg">
+<button class="bg-primary-container text-on-primary-container px-10 py-4 rounded-none font-body-md text-lg font-medium hover:bg-opacity-90 transition-opacity">أنشئ منيو مطعمك</button>
+<a class="text-dark-ink font-body-md text-lg flex items-center gap-sm hover:opacity-70 transition-opacity group cursor-pointer" href="#">
+                شاهد مثالاً مباشراً
+                <span class="material-symbols-outlined transform group-hover:-translate-x-1 transition-transform rtl:rotate-180">arrow_forward</span>
+</a>
+</div>
+<div class="text-muted-text font-body-md text-sm flex flex-wrap gap-x-6 gap-y-2">
+<span class="">جاهز للعربية</span>
+<span class="">·</span>
+<span class="">يعمل على جميع الأجهزة</span>
+<span class="">·</span>
+<span class="">بدون خبرة تقنية</span>
+</div>
+</div>
+</div>
+<div class="md:col-span-7 order-1 md:order-1 relative h-full w-full flex items-center justify-center">
+<div class="relative w-full h-full flex items-center justify-center scale-105 md:translate-x-6">
+<img alt="Premium Arabic digital restaurant menu management interface" class="w-full h-auto object-cover shadow-2xl" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAbza0pv-KMrd4cLmzSV_RqQtWSO4I42jC1VMC7KFppGQhtgzVc-jcFbRLIowwObMhvQXBkS8_2qx2bfpXtz5SsoZSbL8HZSsQ_Eem7DomJ6i7K22oAHZy3V__f8UF0PRBR46oBBGNfkv2qDW87p2dwz5bIeGyRIHR0l2G59_ukXB-2Ib89NNbayPaAndwOI0LwlMKMXi3iU2OI-g5NL6tWF8K7JKw-4ZeLZnVCJAAr_O-O2zlcrwZz6w"/>
+</div>
+</div></section>
+<!-- 3. Editorial Statement (Compact) -->
+<section class="max-w-4xl mx-auto px-gutter py-16 mb-16 text-center border-t border-b border-subtle-border">
+<h2 class="font-headline-lg text-3xl text-dark-ink leading-tight mb-4">
+        المنيو الخاص بك ليس ملف PDF ثابت.
+    </h2>
+<p class="font-body-lg text-secondary leading-relaxed">
+        غيّر السعر أو الصورة أو الصنف، وسيظهر التحديث مباشرة لزبائنك دون إعادة طباعة.
+    </p>
+</section>
+<!-- 4. Product Story -->
+<section class="max-w-7xl mx-auto px-gutter py-20"><div class="flex flex-col gap-y-12">
+<div class="flex flex-col gap-4 text-center items-center">
+<h2 class="font-display-xl-mobile md:font-display-xl text-dark-ink leading-tight tracking-tight">
+      عدّل مرة واحدة.<br/>وشاهده مباشرة في المنيو الخاص بك.
+    </h2>
+</div>
+<div class="relative w-full py-8">
+<div class="relative w-full h-auto">
+<img alt="DMenu Dashboard and Mobile Sync" class="w-full h-auto shadow-2xl rounded-lg" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDsDgjHjJZJbO9YMulmfg27cTxOiyzEOijcD_MT_oeMqudKI8Dbso4LdpfGXeb41nPAuAlT1iax6N8PtdCg6CpAlXZY3KiQ0b7NXu2RvL4c2ByyCG0VSThobXvLMAcnBjAMCY4FrxFllka4pGQUU89maF26aeCKRrm60OSY_hv3aaVfQp3Loe0wxqblUgegWgSxRGo0bjwyavqK0SEgREoVKzjXk7kFPtroAtpACu22d1Y1Vjs76zeeew"/>
+</div>
+</div>
+<!-- Compact "How it Works" line -->
+<div class="flex flex-col md:flex-row items-center justify-between border-t border-subtle-border pt-12 gap-8 text-center md:text-right">
+<div class="flex items-center gap-4 flex-1">
+<span class="font-label-sm text-primary-container tracking-widest">01</span>
+<span class="font-headline-md text-lg text-dark-ink">أنشئ مطعمك</span>
+</div>
+<div class="hidden md:block h-[1px] flex-1 bg-subtle-border"></div>
+<div class="flex items-center gap-4 flex-1 justify-center md:justify-start">
+<span class="font-label-sm text-primary-container tracking-widest">02</span>
+<span class="font-headline-md text-lg text-dark-ink">أضف المنيو الخاص بك</span>
+</div>
+<div class="hidden md:block h-[1px] flex-1 bg-subtle-border"></div>
+<div class="flex items-center gap-4 flex-1 justify-center md:justify-end">
+<span class="font-label-sm text-primary-container tracking-widest">03</span>
+<span class="font-headline-md text-lg text-dark-ink">شارك الرابط أو QR</span>
+</div>
+</div>
+</div></section>
+<!-- 5. Template Gallery (formerly 7) -->
+<section class="w-full bg-[#16161A] text-white py-24 overflow-hidden relative" id="templates">
+<div class="max-w-[1440px] mx-auto px-gutter relative z-10">
+<!-- Header -->
+<div class="flex flex-col md:flex-row justify-between items-start md:items-end gap-12 mb-16">
+<div class="flex flex-col gap-6">
+<h2 class="font-display-xl-mobile md:font-display-xl text-white leading-tight tracking-tight max-w-2xl">
+          مطعمك له شخصية.<br/>المنيو الخاص بك أيضاً.
+        </h2>
+</div>
+<div class="flex items-center gap-4">
+<a class="font-label-sm text-sm text-white hover:text-white/70 transition-colors flex items-center gap-2 group border-b border-white pb-1" href="#">
+          استكشف جميع القوالب
+          <span class="material-symbols-outlined text-sm transform group-hover:-translate-x-1 transition-transform rtl:rotate-180">arrow_forward</span>
+</a>
+</div>
+</div>
+<!-- Editorial Showcase (Compact) -->
+<div class="relative w-full h-[500px] flex gap-8 items-center overflow-x-auto snap-x snap-mandatory hide-scrollbar">
+<!-- Template 01: NOIR (Largest) -->
+<div class="snap-center shrink-0 w-[80vw] md:w-[60%] h-full relative">
+<div class="relative border-4 border-[#2A2A30] rounded-[2rem] overflow-hidden bg-black shadow-2xl h-full">
+<img alt="Noir Template" class="w-full h-full object-cover opacity-90" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAp6_HF48REwpNKEyw0qrUcvYxeIQIBzgapXzBszJVsSQS-cDKUzdOQ6R3Ovaq_aVHxiQpjdfkfZTmqIIOrCJtXRipfRzBhXZt2W8HXwjwbU0wvyTlMtbXXN9dgpr_uDcRzZ2U_Y3wdlJUmVUgk920WEAKFaCqtso4fz0rgdn0xh7eR8iFKADodBXTsR02Jz5rJ86YHzFJCuVNUXstcGb2MZ_g_2i3mtI5KqVnoGI8UCU3v3e6Xu8YOKg"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
+<div class="absolute bottom-8 left-8 right-8 text-center">
+<div class="font-display-xl text-3xl text-white tracking-widest mb-2">NOIR</div>
+<div class="font-body-md text-white/70 text-sm">Fine Dining &amp; Elegance</div>
+</div>
+</div>
+</div>
+<!-- Template 02: ROAST (Partially visible) -->
+<div class="snap-center shrink-0 w-[60vw] md:w-[35%] h-[80%] relative opacity-70 hover:opacity-100 transition-opacity">
+<div class="relative border-4 border-[#2A2A30] rounded-[2rem] overflow-hidden bg-[#F5F2EB] shadow-2xl h-full">
+<img alt="Roast Template" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuACwenAiuf16HMWHlOVl8QEs7kBc8374jWWZxS_bZBLnh9NOMwlvq7wA890DMnJofp2PUYR58Gsm7f-HehfJaOSAjrkSBt6TRGn864KfOBzgqn1tEpcxHRImZvbIJqDpMRWnlHBlVCXUkGJJ-5WQWk7AR9zcHbDKlpFupZCNQ6uXAvn-wjx5X2d26iPYA6bmA-2nQDiMKrKEJnpL9oK31itKjttiKd71yIs8dPgPZSLI0pdB-NqP6XhnA"/>
+<div class="absolute inset-0 bg-gradient-to-b from-[#F5F2EB]/90 via-transparent to-black/60"></div>
+<div class="absolute top-8 left-8 right-8 text-center">
+<div class="font-headline-lg text-2xl text-[#3A2E28] font-bold mb-1">ROAST</div>
+</div>
+</div>
+</div>
+<!-- Template 03: FORNO (Partially visible) -->
+<div class="snap-center shrink-0 w-[50vw] md:w-[25%] h-[70%] relative opacity-50 hover:opacity-100 transition-opacity">
+<div class="relative border-4 border-[#2A2A30] rounded-[2rem] overflow-hidden bg-[#E23E3E] shadow-2xl h-full">
+<img alt="Forno Template" class="w-full h-full object-cover mix-blend-multiply opacity-80" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAh5CLo_tmRrXVrdEASdlKjoM0DDUqiJWR_3AdniHrXfvjI3k2U6n9tpkDGPQN_XxVc1-SHsABtGkOJnMVdns8XO1CLRnmZ7wgpLu_At3hr2bTco8ux2ft9sLRC6ryjo_g7j5czYi5joaXz395SDBTDep3ihmcHFbgpQ3k34sESfP-mNFpaIDmZR0p_aFCgEcU078lG8jlATTkvJNZIdHt2yNZnpamTfVmzg1ZRSqVVt-p9h5pBfrN3mg"/>
+<div class="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
+<div class="font-display-xl text-2xl text-white font-bold mb-2 uppercase tracking-tighter">Forno</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<style>
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+</style>
+</section>
+<!-- 6. Capabilities Index -->
+<section class="max-w-7xl mx-auto px-gutter py-24 bg-[#F7F6F2]">
+<div class="flex flex-col items-start gap-4 mb-16">
+<h2 class="font-display-xl-mobile md:font-display-xl text-dark-ink leading-tight tracking-tight">
+      كل ما تحتاجه لإدارة المنيو الخاص بك.
+    </h2>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-x-24 gap-y-8 border-t border-subtle-border pt-12">
+<div class="flex flex-col gap-4 border-b border-subtle-border pb-8">
+<h3 class="font-headline-md text-xl text-dark-ink">إدارة المنيو</h3>
+<p class="font-body-md text-secondary">أضف الأصناف، حدّث الأسعار، ورتب الأقسام بسهولة في أي وقت.</p>
+</div>
+<div class="flex flex-col gap-4 border-b border-subtle-border pb-8">
+<h3 class="font-headline-md text-xl text-dark-ink">الهوية والتصميم</h3>
+<p class="font-body-md text-secondary">خصص الألوان، الخطوط، والصور لتطابق العلامة التجارية لمطعمك تماماً.</p>
+</div>
+<div class="flex flex-col gap-4 border-b border-subtle-border pb-8">
+<h3 class="font-headline-md text-xl text-dark-ink">تجربة العميل</h3>
+<p class="font-body-md text-secondary">تصفح سريع وسلس على جميع الأجهزة الذكية مع دعم كامل للغة العربية.</p>
+</div>
+<div class="flex flex-col gap-4 border-b border-subtle-border pb-8">
+<h3 class="font-headline-md text-xl text-dark-ink">المشاركة و QR</h3>
+<p class="font-body-md text-secondary">احصل على رابط مخصص ورمز QR جاهز للطباعة على طاولاتك فوراً.</p>
+</div>
+<div class="flex flex-col gap-4 border-b border-subtle-border pb-8">
+<h3 class="font-headline-md text-xl text-dark-ink">تحكم كامل</h3>
+<p class="font-body-md text-secondary">إخفاء الأصناف غير المتوفرة مؤقتاً، وتحديث الوصف والمكونات بضغطة زر.</p>
+</div>
+<div class="flex flex-col gap-4 border-b border-subtle-border pb-8">
+<h3 class="font-headline-md text-xl text-dark-ink">دومين مخصص</h3>
+<p class="font-body-md text-secondary">اربط المنيو برابط مطعمك الخاص لتعزيز احترافية علامتك التجارية.</p>
+</div>
+</div>
+</section>
+<!-- 7. Pricing -->
+<section class="max-w-7xl mx-auto px-gutter py-24 bg-[#F7F6F2]">
+<div class="flex flex-col items-start gap-4 mb-16">
+<h2 class="font-display-xl-mobile md:font-display-xl text-dark-ink leading-tight tracking-tight">
+      اختر ما يناسب حجم مطعمك.
+    </h2>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 border-t border-b border-subtle-border">
+<!-- Basic Plan -->
+<div class="py-12 md:px-8 flex flex-col">
+<div class="mb-8">
+<h3 class="font-headline-md text-2xl text-dark-ink mb-2">الأساسي</h3>
+<div class="font-display-xl-mobile text-4xl text-dark-ink">مجاناً</div>
+<p class="font-body-md text-secondary mt-2">مثالي للبدايات والمقاهي الصغيرة.</p>
+</div>
+<ul class="flex flex-col gap-4 mb-12 flex-grow font-body-md text-dark-ink">
+<li class="flex justify-between border-b border-subtle-border pb-2"><span class="">قائمة واحدة</span></li>
+<li class="flex justify-between border-b border-subtle-border pb-2"><span class="">حتى 50 صنف</span></li>
+<li class="flex justify-between border-b border-subtle-border pb-2"><span class="">قالب افتراضي</span></li>
+</ul>
+<button class="w-full border border-dark-ink text-dark-ink py-4 font-medium hover:bg-dark-ink hover:text-white transition-colors">ابدأ مجاناً</button>
+</div>
+<!-- Professional Plan (Recommended) -->
+<div class="py-12 md:px-8 md:border-l md:border-r border-subtle-border relative border-t-4 border-t-[#5B5FEF] flex flex-col">
+<span class="absolute top-4 right-8 text-[#5B5FEF] text-xs font-label-sm uppercase tracking-wider">الأكثر اختياراً</span>
+<div class="mb-8">
+<h3 class="font-headline-md text-2xl text-dark-ink mb-2">الاحترافي</h3>
+<div class="font-display-xl-mobile text-4xl text-dark-ink">99 <span class="text-sm text-secondary font-body-md">ر.س /شهر</span></div>
+<p class="font-body-md text-secondary mt-2">للمطاعم المتنامية التي تبحث عن التميز.</p>
+</div>
+<ul class="flex flex-col gap-4 mb-12 flex-grow font-body-md text-dark-ink">
+<li class="flex justify-between border-b border-subtle-border pb-2"><span class="">قوائم وأصناف لا محدودة</span></li>
+<li class="flex justify-between border-b border-subtle-border pb-2"><span class="">جميع القوالب والتخصيص</span></li>
+<li class="flex justify-between border-b border-subtle-border pb-2"><span class="">إحصائيات متقدمة</span></li>
+</ul>
+<button class="w-full bg-[#5B5FEF] text-white py-4 font-medium hover:bg-opacity-90 transition-opacity">اشترك الآن</button>
+</div>
+<!-- Business Plan -->
+<div class="py-12 md:px-8 flex flex-col">
+<div class="mb-8">
+<h3 class="font-headline-md text-2xl text-dark-ink mb-2">الأعمال</h3>
+<div class="font-display-xl-mobile text-4xl text-dark-ink">299 <span class="text-sm text-secondary font-body-md">ر.س /شهر</span></div>
+<p class="font-body-md text-secondary mt-2">للسلاسل والعمليات المعقدة.</p>
+</div>
+<ul class="flex flex-col gap-4 mb-12 flex-grow font-body-md text-dark-ink">
+<li class="flex justify-between border-b border-subtle-border pb-2"><span class="">كل ميزات الاحترافي</span></li>
+<li class="flex justify-between border-b border-subtle-border pb-2"><span class="">دومين مخصص</span></li>
+<li class="flex justify-between border-b border-subtle-border pb-2"><span class="">دعم فني 24/7</span></li>
+</ul>
+<button class="w-full border border-subtle-border text-dark-ink py-4 font-medium hover:bg-surface transition-colors">تواصل معنا</button>
+</div>
+</div>
+</section>
+<!-- 8. Final CTA & Footer Integrated -->
+<section class="bg-primary-container w-full pt-32 pb-16 text-center text-white flex flex-col mt-auto">
+<div class="max-w-4xl mx-auto px-gutter mb-24">
+<h2 class="font-display-xl-mobile md:font-display-xl text-5xl md:text-[72px] mb-12 leading-[1.1]">
+                منيو أفضل يبدأ من هنا.
+            </h2>
+<div class="flex flex-col items-center gap-6">
+<button class="bg-white text-primary-container px-12 py-4 font-headline-md text-xl font-medium hover:bg-surface transition-colors">
+                    أنشئ حسابك مجاناً
+                </button>
+<a class="text-white/80 font-body-md text-lg hover:text-white transition-colors flex items-center gap-2 group" href="#">
+                    تواصل مع المبيعات
+                    <span class="material-symbols-outlined transform group-hover:-translate-x-1 transition-transform rtl:rotate-180 text-sm">arrow_forward</span>
+</a>
+</div>
+</div>
+<!-- Footer Section inside the same visual environment -->
+<footer class="w-full border-t border-white/20 pt-8 mt-8">
+<div class="grid grid-cols-1 md:grid-cols-12 gap-8 max-w-7xl mx-auto px-gutter text-right">
+<div class="md:col-span-4 flex flex-col gap-4">
+<div class="font-headline-lg text-2xl font-bold">DMenu</div>
+<p class="font-body-md text-sm text-white/70">
+                    © 2024 DMenu. All rights reserved.<br/>Built for the modern restaurateur.
+                </p>
+</div>
+<div class="md:col-span-8 flex flex-wrap justify-end gap-8 font-body-md text-sm text-white/80">
+<a class="hover:text-white transition-colors" href="#">Terms of Service</a>
+<a class="hover:text-white transition-colors" href="#">Privacy Policy</a>
+<a class="hover:text-white transition-colors" href="#">Instagram</a>
+<a class="hover:text-white transition-colors" href="#">LinkedIn</a>
+</div>
+</div>
+</footer>
+</section>
+</main>
+</body></html>

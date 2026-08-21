@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { Plus, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
-import { OwnerAppShell, MetricCard, ProPanel } from "@/components/owner/dashboard/OwnerAppShell";
+import { OwnerAppShell } from "@/components/owner/dashboard/OwnerAppShell";
+import { AppBadge, AppEmptyState, AppPageHeader, AppSurface, cn } from "@/components/shared";
 import { adminRequest } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import { normalizeModules } from "@/lib/modules";
@@ -74,25 +75,34 @@ export function OwnerDashboardOverview() {
   return (
     <OwnerAppShell restaurant={restaurant} modules={modules} title="لوحة التشغيل" eyebrow="إدارة يومية للمطعم" busy={busy} onRefresh={() => void load()}>
       <div className="mx-auto grid max-w-7xl gap-4">
-        {message ? <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-black text-red-800">{message}</p> : null}
+        <AppPageHeader
+          title="نظرة تشغيلية"
+          description="مؤشرات مختصرة عن الطلبات والطاولات والمخزون والفواتير."
+          secondaryActions={restaurant ? <AppBadge variant="neutral">{restaurant.name}</AppBadge> : null}
+        />
+        {message ? <p className="rounded-app-md border border-app-danger-soft bg-app-danger-soft p-3 text-app-body font-semibold text-app-danger">{message}</p> : null}
         {!restaurant ? (
-          <div className="grid min-h-[320px] place-items-center rounded-lg border border-slate-200 bg-white">
-            <RefreshCw className="h-6 w-6 animate-spin text-amber-600" />
+          <div className="grid min-h-[320px] place-items-center rounded-app-lg border border-app-border bg-app-surface">
+            <RefreshCw className="h-6 w-6 animate-spin text-app-primary" />
           </div>
         ) : (
           <>
             <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-              <MetricCard label="مبيعات اليوم" value={formatMoney(summary?.totals.sales ?? 0, restaurant.currency)} tone="green" />
-              <MetricCard label="طلبات مفتوحة" value={String(activeOrders.length)} tone="amber" />
-              <MetricCard label="طاولات مشغولة" value={`${occupiedTables}/${tables.length}`} />
-              <MetricCard label="مخزون منخفض" value={String(lowStock.length)} tone={lowStock.length ? "red" : "green"} />
-              <MetricCard label="فواتير غير مدفوعة" value={String(unpaidInvoices.length)} tone={unpaidInvoices.length ? "amber" : "green"} />
-              <MetricCard label="مصروفات" value={formatMoney(expenseTotal, restaurant.currency)} />
+              <OverviewMetric label="مبيعات اليوم" value={formatMoney(summary?.totals.sales ?? 0, restaurant.currency)} tone="success" />
+              <OverviewMetric label="طلبات مفتوحة" value={String(activeOrders.length)} tone="warning" />
+              <OverviewMetric label="طاولات مشغولة" value={`${occupiedTables}/${tables.length}`} />
+              <OverviewMetric label="مخزون منخفض" value={String(lowStock.length)} tone={lowStock.length ? "danger" : "success"} />
+              <OverviewMetric label="فواتير غير مدفوعة" value={String(unpaidInvoices.length)} tone={unpaidInvoices.length ? "warning" : "success"} />
+              <OverviewMetric label="مصروفات" value={formatMoney(expenseTotal, restaurant.currency)} />
             </section>
 
             <section className="grid gap-3 md:grid-cols-5">
               {quickActions.map((action) => (
-                <Link key={action.href} href={action.href} className="flex h-12 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5">
+                <Link
+                  key={action.href}
+                  href={action.href}
+                  className="flex h-10 items-center justify-center gap-2 rounded-app-md border border-app-primary bg-app-primary px-3 text-sm font-semibold text-app-primary-foreground transition-colors hover:border-app-primary-hover hover:bg-app-primary-hover focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft"
+                >
                   <Plus className="h-4 w-4" />
                   {action.label}
                 </Link>
@@ -100,7 +110,7 @@ export function OwnerDashboardOverview() {
             </section>
 
             <section className="grid gap-4 xl:grid-cols-[1.3fr_1fr]">
-              <ProPanel title="الطلبات النشطة">
+              <AppSurface title="الطلبات النشطة">
                 <DenseList
                   empty="لا توجد طلبات نشطة."
                   rows={activeOrders.map((order) => ({
@@ -109,29 +119,43 @@ export function OwnerDashboardOverview() {
                     meta: `${order.status} · ${formatMoney(order.total, restaurant.currency)}`
                   }))}
                 />
-              </ProPanel>
-              <ProPanel title="حالة الطاولات">
-                <div className="grid grid-cols-6 gap-2 md:grid-cols-12">
-                  {tables.slice(0, 12).map((table) => (
-                    <Link key={table.id} href="/owner/operations/tables" className={`rounded-md border p-3 text-sm font-black ${table.status === "AVAILABLE" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : table.status === "OCCUPIED" ? "border-amber-200 bg-amber-50 text-amber-900" : "border-slate-200 bg-slate-50 text-slate-600"}`}>
-                      <span className="block truncate">{table.name}</span>
-                      {/* <span className="mt-1 block text-xs opacity-70">{table.status}</span> */}
-                    </Link>
-                  ))}
-                </div>
-              </ProPanel>
+              </AppSurface>
+              <AppSurface title="حالة الطاولات">
+                {tables.length ? (
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-4">
+                    {tables.slice(0, 12).map((table) => (
+                      <Link
+                        key={table.id}
+                        href="/owner/operations/tables"
+                        className={cn(
+                          "rounded-app-md border p-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft",
+                          table.status === "AVAILABLE"
+                            ? "border-app-success-soft bg-app-success-soft text-app-success"
+                            : table.status === "OCCUPIED"
+                              ? "border-app-warning-soft bg-app-warning-soft text-app-warning"
+                              : "border-app-border bg-app-surface-muted text-app-muted"
+                        )}
+                      >
+                        <span className="block truncate">{table.name}</span>
+                      </Link>
+                    ))}
+                  </div>
+                ) : (
+                  <AppEmptyState title="لا توجد طاولات" description="ستظهر الطاولات هنا بعد إضافتها." />
+                )}
+              </AppSurface>
             </section>
 
             <section className="grid gap-4 xl:grid-cols-3">
-              <ProPanel title="تنبيهات المخزون">
+              <AppSurface title="تنبيهات المخزون">
                 <DenseList empty="المخزون ضمن الحدود." rows={lowStock.map((item) => ({ id: item.id, title: item.name, meta: `${item.currentQuantity} ${item.unit} / حد ${item.minimumQuantity}` }))} />
-              </ProPanel>
-              <ProPanel title="فواتير تحتاج متابعة">
+              </AppSurface>
+              <AppSurface title="فواتير تحتاج متابعة">
                 <DenseList empty="لا توجد فواتير معلقة." rows={unpaidInvoices.slice(0, 8).map((invoice) => ({ id: invoice.id, title: `${invoice.type} · ${invoice.status}`, meta: formatMoney(invoice.remainingAmount, restaurant.currency) }))} />
-              </ProPanel>
-              <ProPanel title="حركات النقد الأخيرة">
+              </AppSurface>
+              <AppSurface title="حركات النقد الأخيرة">
                 <DenseList empty="لا توجد حركات نقدية." rows={cashMovements.slice(0, 8).map((movement) => ({ id: movement.id, title: `${movement.type} · ${formatMoney(movement.amount, restaurant.currency)}`, meta: movement.note || movement.referenceType }))} />
-              </ProPanel>
+              </AppSurface>
             </section>
           </>
         )}
@@ -148,17 +172,41 @@ const quickActions = [
   { label: "فاتورة جديدة", href: "/owner/operations/invoices" }
 ];
 
+function OverviewMetric({
+  label,
+  value,
+  tone = "neutral"
+}: {
+  label: string;
+  value: string;
+  tone?: "neutral" | "success" | "warning" | "danger";
+}) {
+  const styles = {
+    neutral: "border-app-border bg-app-surface text-app-ink",
+    success: "border-app-success-soft bg-app-success-soft text-app-success",
+    warning: "border-app-warning-soft bg-app-warning-soft text-app-warning",
+    danger: "border-app-danger-soft bg-app-danger-soft text-app-danger"
+  };
+
+  return (
+    <div className={cn("rounded-app-lg border p-4", styles[tone])}>
+      <p className="text-app-helper font-semibold opacity-75">{label}</p>
+      <p className="mt-2 text-xl font-semibold">{value}</p>
+    </div>
+  );
+}
+
 function DenseList({ rows, empty }: { rows: Array<{ id: string; title: string; meta: string }>; empty: string }) {
   if (!rows.length) {
-    return <p className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-sm font-bold text-slate-500">{empty}</p>;
+    return <AppEmptyState title={empty} description="" className="py-5" />;
   }
 
   return (
-    <div className="divide-y divide-slate-100">
+    <div className="divide-y divide-app-border">
       {rows.map((row) => (
         <div key={row.id} className="flex items-center justify-between gap-3 py-2">
-          <p className="truncate text-sm font-black">{row.title}</p>
-          <p className="shrink-0 text-xs font-bold text-slate-500">{row.meta}</p>
+          <p className="truncate text-sm font-semibold text-app-ink">{row.title}</p>
+          <p className="shrink-0 text-app-helper font-medium text-app-muted">{row.meta}</p>
         </div>
       ))}
     </div>

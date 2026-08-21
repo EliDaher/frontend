@@ -1,10 +1,10 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { PopupForm } from "@/components/shared";
+import { AppButton, AppFieldShell, AppInput, AppSelect, PopupForm } from "@/components/shared";
 import type { MenuItem } from "@/types/menu";
 import type { InventoryItem, RecipeDraftLine } from "@/types/ops";
-import { Field, NumberField, PrimaryButton, SelectField, Warning } from "./OwnerDashboardParts";
+import { Warning } from "./OwnerDashboardParts";
 
 export function OwnerRecipeEditorModal({
   item,
@@ -44,36 +44,48 @@ export function OwnerRecipeEditorModal({
 
         <div className="grid gap-3">
           {recipeDraft.map((line, index) => (
-            <div key={index} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <div key={index} className="rounded-app-lg border border-app-border bg-app-surface-muted p-3">
               <div className="grid gap-3 sm:grid-cols-[1fr_110px_90px]">
-                <SelectField
-                  label="مادة المخزون"
-                  value={line.inventoryItemId}
-                  options={inventoryItems.map((inventoryItem) => ({ value: inventoryItem.id, label: `${inventoryItem.name} (${inventoryItem.currentQuantity} ${inventoryItem.unit})` }))}
-                  onChange={(inventoryItemId) => onUpdateLine(index, { inventoryItemId })}
-                />
-                <NumberField label="الكمية" value={line.quantity} onChange={(quantity) => onUpdateLine(index, { quantity })} />
-                <Field label="الوحدة" value={line.unit} onChange={(unit) => onUpdateLine(index, { unit })} />
+                <AppFieldShell label="مادة المخزون">
+                  <AppSelect value={line.inventoryItemId} onChange={(event) => onUpdateLine(index, { inventoryItemId: event.target.value })}>
+                    {inventoryItems.map((inventoryItem) => (
+                      <option key={inventoryItem.id} value={inventoryItem.id}>
+                        {inventoryItem.name} ({inventoryItem.currentQuantity} {inventoryItem.unit})
+                      </option>
+                    ))}
+                  </AppSelect>
+                </AppFieldShell>
+                <AppFieldShell label="الكمية">
+                  <AppInput
+                    type="number"
+                    min="0"
+                    value={Number.isFinite(line.quantity) ? line.quantity : 0}
+                    onChange={(event) => onUpdateLine(index, { quantity: Number(event.target.value) })}
+                  />
+                </AppFieldShell>
+                <AppFieldShell label="الوحدة">
+                  <AppInput value={line.unit} onChange={(event) => onUpdateLine(index, { unit: event.target.value })} />
+                </AppFieldShell>
               </div>
               <div className="mt-3 flex justify-end">
-                <button type="button" onClick={() => onRemoveLine(index)} className="h-9 rounded-md border border-red-200 bg-red-50 px-3 text-xs font-black text-red-700">
+                <AppButton type="button" variant="ghost" size="sm" onClick={() => onRemoveLine(index)} className="text-app-danger hover:bg-app-danger-soft">
                   حذف المكون
-                </button>
+                </AppButton>
               </div>
             </div>
           ))}
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
-          <button
+          <AppButton
             type="button"
+            variant="secondary"
             disabled={!inventoryItems.length}
             onClick={onAddLine}
-            className="h-11 rounded-md border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 disabled:opacity-50"
           >
             إضافة مكون
-          </button>
-          <PrimaryButton disabled={busy || !inventoryItems.length}>حفظ المكونات</PrimaryButton>
+          </AppButton>
+          <AppButton type="submit" disabled={busy || !inventoryItems.length} loading={busy}>حفظ المكونات</AppButton>
         </div>
       </form>
     </PopupForm>

@@ -3,6 +3,26 @@
 @tailwind utilities;
 
 :root {
+  --app-bg: #f7f6f2;
+  --app-surface: #ffffff;
+  --app-surface-muted: #f1f0eb;
+  --app-border: #e8e6e1;
+  --app-border-strong: #d6d2c9;
+  --app-backdrop: rgba(22, 22, 26, 0.45);
+  --app-ink: #16161a;
+  --app-muted: #6b6b72;
+  --app-primary: #5b5fef;
+  --app-primary-hover: #484bd8;
+  --app-primary-soft: #ececff;
+  --app-primary-foreground: #ffffff;
+  --app-success: #047857;
+  --app-success-soft: #ecfdf5;
+  --app-warning: #b45309;
+  --app-warning-soft: #fffbeb;
+  --app-danger: #b91c1c;
+  --app-danger-soft: #fef2f2;
+
+  /* Legacy menu-template variables. Keep separate from the DMenu app theme. */
   --primary: #b45309;
   --secondary: #f59e0b;
   --background: #fffaf0;

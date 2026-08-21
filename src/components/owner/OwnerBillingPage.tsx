@@ -1,18 +1,29 @@
 "use client";
 
-import Link from "next/link";
-import { ArrowRight, CreditCard, RefreshCw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { CreditCard, RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { OwnerAppShell } from "@/components/owner/dashboard/OwnerAppShell";
+import {
+  AppBadge,
+  AppButton,
+  AppEmptyState,
+  AppPageHeader,
+  AppSurface,
+  cn
+} from "@/components/shared";
 import { adminRequest } from "@/lib/api";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatInteger } from "@/lib/format";
+import { normalizeModules } from "@/lib/modules";
 import { planLabels, subscriptionLabels } from "@/lib/plans";
-import type { OwnerSubscription } from "@/types/menu";
+import type { OwnerSubscription, Restaurant, SubscriptionStatus } from "@/types/menu";
 
 export function OwnerBillingPage() {
   const [token, setToken] = useState("");
+  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [subscription, setSubscription] = useState<OwnerSubscription | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const modules = useMemo(() => restaurant ? normalizeModules(restaurant.plan, restaurant.modules) : null, [restaurant]);
 
   useEffect(() => {
     const storedToken = window.localStorage.getItem("menu-owner-token");
@@ -29,7 +40,10 @@ export function OwnerBillingPage() {
     setBusy(true);
     setMessage("");
     try {
-      setSubscription(await adminRequest<OwnerSubscription>("/api/owner/subscription", authToken));
+      const nextSubscription = await adminRequest<OwnerSubscription>("/api/owner/subscription", authToken);
+      setSubscription(nextSubscription);
+      const nextRestaurant = await adminRequest<Restaurant>("/api/owner/restaurant", authToken).catch(() => null);
+      setRestaurant(nextRestaurant);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "تعذر تحميل الاشتراك.");
     } finally {
@@ -38,87 +52,119 @@ export function OwnerBillingPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f5f6f8] px-4 py-6 text-slate-950" dir="rtl">
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-5 flex items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-black text-amber-700">الفوترة اليدوية</p>
-            <h1 className="text-2xl font-black">الاشتراك والحدود</h1>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => void load()} className="grid h-10 w-10 place-items-center rounded-md border border-slate-200 bg-white shadow-sm">
-              <RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />
-            </button>
-            <Link href="/owner/dashboard" className="inline-flex h-10 items-center gap-2 rounded-md bg-slate-950 px-4 text-sm font-black text-white">
-              <ArrowRight className="h-4 w-4" />
-              اللوحة
-            </Link>
-          </div>
-        </div>
+    <OwnerAppShell restaurant={restaurant} modules={modules} title="الفوترة والاشتراك" eyebrow="SaaS Billing" busy={busy} onRefresh={() => void load()}>
+      <div className="mx-auto grid max-w-6xl gap-4">
+        <AppPageHeader
+          title="الفوترة والاشتراك"
+          description="إدارة باقة DMenu وحالة الاشتراك."
+          secondaryActions={subscription ? (
+            <>
+              <AppBadge variant="primary">{planLabels[subscription.plan]}</AppBadge>
+              <SubscriptionStatusBadge status={subscription.status} />
+              <AppBadge variant="neutral">{subscription.billingCycle === "yearly" ? "سنوي" : "شهري"}</AppBadge>
+            </>
+          ) : null}
+        />
 
-        {message ? <p className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-black text-red-800">{message}</p> : null}
+        {message ? <PageMessage text={message} /> : null}
 
         {subscription ? (
-          <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
-            <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-black text-amber-800">{planLabels[subscription.plan]}</span>
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">{subscriptionLabels[subscription.status]}</span>
-                <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-600 ring-1 ring-slate-200">
-                  {subscription.billingCycle === "yearly" ? "سنوي" : "شهري"}
-                </span>
-              </div>
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+            <AppSurface title="الخطة الحالية">
+              <div className="grid gap-4">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <ReadOnlyFact label="الباقة" value={planLabels[subscription.plan]} />
+                  <ReadOnlyFact label="الحالة" value={subscriptionLabels[subscription.status]} badge={<SubscriptionStatusBadge status={subscription.status} />} />
+                  <ReadOnlyFact label="دورة الفوترة" value={subscription.billingCycle === "yearly" ? "سنوي" : "شهري"} />
+                </div>
 
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                <Usage label="الأصناف" value={subscription.usage.items} max={subscription.limits.maxItems} />
-                <Usage label="الأقسام" value={subscription.usage.categories} max={subscription.limits.maxCategories} />
-              </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Usage label="الأصناف" value={subscription.usage.items} max={subscription.limits.maxItems} />
+                  <Usage label="الأقسام" value={subscription.usage.categories} max={subscription.limits.maxCategories} />
+                </div>
 
-              <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
-                <p className="text-sm font-black text-slate-500">تاريخ الانتهاء</p>
-                <p className="mt-1 text-xl font-black">{subscription.endsAt ? formatDate(subscription.endsAt) : "لم يحدد بعد"}</p>
-                <p className="mt-3 text-sm font-bold leading-7 text-slate-600">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <ReadOnlyFact label="تاريخ الانتهاء" value={subscription.endsAt ? formatDate(subscription.endsAt) : "لم يحدد بعد"} />
+                  <ReadOnlyFact label="آخر دفعة" value={subscription.lastPaymentAt ? formatDate(subscription.lastPaymentAt) : "لا توجد دفعة مسجلة"} />
+                </div>
+
+                <div className="rounded-app-md border border-app-border bg-app-surface-muted p-4 text-app-body leading-7 text-app-muted">
                   عند الدفع، يضيف السوبر أدمن الدفعة يدوياً ويمدد الاشتراك. إذا كانت الحالة غير فعالة لن تظهر صفحة المنيو العامة.
-                </p>
+                </div>
               </div>
-            </section>
+            </AppSurface>
 
-            <aside className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="grid h-12 w-12 place-items-center rounded-md bg-amber-100 text-amber-800">
-                <CreditCard className="h-5 w-5" />
+            <AppSurface>
+              <div className="grid gap-4">
+                <div className="grid h-11 w-11 place-items-center rounded-app-md border border-app-border bg-app-primary-soft text-app-primary">
+                  <CreditCard className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-app-section-title font-semibold text-app-ink">تعليمات الدفع</h2>
+                  <p className="mt-2 text-app-body leading-7 text-app-muted">
+                    الدفع في هذه النسخة يدوي بالكامل. أرسل إثبات الدفع للإدارة مع اسم المطعم والبريد المسجل، وسيتم تفعيل أو تمديد الاشتراك من لوحة السوبر أدمن.
+                  </p>
+                </div>
+                <div className="rounded-app-md border border-app-border bg-app-surface-muted p-4 text-app-body">
+                  <p className="text-app-helper text-app-muted">الحالة الحالية</p>
+                  <div className="mt-2">
+                    <SubscriptionStatusBadge status={subscription.status} />
+                  </div>
+                </div>
               </div>
-              <h2 className="mt-4 text-lg font-black">تعليمات الدفع</h2>
-              <p className="mt-2 text-sm font-bold leading-7 text-slate-600">
-                الدفع في هذه النسخة يدوي بالكامل. أرسل إثبات الدفع للإدارة مع اسم المطعم والبريد المسجل، وسيتم تفعيل أو تمديد الاشتراك من لوحة السوبر أدمن.
-              </p>
-              <div className="mt-4 rounded-md bg-slate-950 p-4 text-sm font-bold leading-7 text-white">
-                الحالة الحالية: {subscriptionLabels[subscription.status]}
-              </div>
-            </aside>
+            </AppSurface>
           </div>
         ) : (
-          <div className="grid min-h-[320px] place-items-center rounded-lg border border-slate-200 bg-white">
-            <RefreshCw className="h-6 w-6 animate-spin text-amber-600" />
-          </div>
+          <AppEmptyState
+            title="جاري تحميل الاشتراك"
+            description="يتم تحميل حالة الباقة والحدود."
+            icon={<RefreshCw className="h-5 w-5 animate-spin" />}
+          />
         )}
       </div>
-    </main>
+    </OwnerAppShell>
   );
 }
 
 function Usage({ label, value, max }: { label: string; value: number; max: number }) {
   const percentage = Math.min(100, Math.round((value / max) * 100));
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
+    <div className="rounded-app-md border border-app-border bg-app-surface p-4">
       <div className="flex items-center justify-between gap-3">
-        <p className="font-black">{label}</p>
-        <p className="text-sm font-black text-slate-500">
-          {value} / {max}
+        <p className="font-semibold text-app-ink">{label}</p>
+        <p className="text-app-helper font-semibold text-app-muted">
+          {formatInteger(value)} / {formatInteger(max)}
         </p>
       </div>
-      <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
-        <div className="h-full rounded-full bg-amber-500" style={{ width: `${percentage}%` }} />
+      <div className="mt-3 h-2 overflow-hidden rounded-app-sm bg-app-surface-muted">
+        <div className="h-full rounded-app-sm bg-app-primary" style={{ width: `${percentage}%` }} />
       </div>
     </div>
   );
+}
+
+function ReadOnlyFact({ label, value, badge }: { label: string; value: string; badge?: React.ReactNode }) {
+  return (
+    <div className="rounded-app-md border border-app-border bg-app-surface-muted p-3">
+      <p className="text-app-helper font-medium text-app-muted">{label}</p>
+      <div className="mt-1 min-w-0">
+        {badge ?? <p className="truncate font-semibold text-app-ink">{value}</p>}
+      </div>
+    </div>
+  );
+}
+
+function SubscriptionStatusBadge({ status }: { status: SubscriptionStatus }) {
+  return <AppBadge variant={subscriptionStatusVariant(status)}>{subscriptionLabels[status]}</AppBadge>;
+}
+
+function subscriptionStatusVariant(status: SubscriptionStatus): "neutral" | "success" | "warning" | "danger" {
+  if (status === "active") return "success";
+  if (status === "pendingApproval" || status === "pastDue") return "warning";
+  if (status === "suspended" || status === "cancelled") return "danger";
+  return "neutral";
+}
+
+function PageMessage({ text }: { text: string }) {
+  return <p className="rounded-app-md border border-app-danger-soft bg-app-danger-soft p-3 text-app-body font-semibold text-app-danger">{text}</p>;
 }

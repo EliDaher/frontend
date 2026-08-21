@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { BarChart3, Boxes, CreditCard, FileText, RefreshCw, ReceiptText, Table2, UtensilsCrossed } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { OwnerAppShell, MetricCard, ProPanel } from "@/components/owner/dashboard/OwnerAppShell";
+import { OwnerAppShell } from "@/components/owner/dashboard/OwnerAppShell";
+import { AppBadge, AppPageHeader, AppSurface, cn } from "@/components/shared";
 import { adminRequest } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import { moduleLabels, normalizeModules } from "@/lib/modules";
@@ -61,43 +62,81 @@ export function OwnerOperationsPage() {
   return (
     <OwnerAppShell restaurant={restaurant} modules={modules} title="مركز العمليات" eyebrow="وحدات إدارة المطعم" busy={busy} onRefresh={() => void load()}>
       <div className="mx-auto grid max-w-7xl gap-4">
-        {message ? <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-black text-red-800">{message}</p> : null}
+        <AppPageHeader
+          title="مركز العمليات"
+          description="الوصول السريع لوحدات التشغيل المتاحة حسب خطة المطعم."
+          secondaryActions={modules ? <AppBadge variant="neutral">{Object.values(modules).filter(Boolean).length} وحدة متاحة</AppBadge> : null}
+        />
+        {message ? <p className="rounded-app-md border border-app-danger-soft bg-app-danger-soft p-3 text-app-body font-semibold text-app-danger">{message}</p> : null}
         {!restaurant || !modules ? (
-          <div className="grid min-h-[320px] place-items-center rounded-lg border border-slate-200 bg-white">
-            <RefreshCw className="h-6 w-6 animate-spin text-amber-600" />
+          <div className="grid min-h-[320px] place-items-center rounded-app-lg border border-app-border bg-app-surface">
+            <RefreshCw className="h-6 w-6 animate-spin text-app-primary" />
           </div>
         ) : (
           <>
             <section className="grid gap-3 md:grid-cols-4">
-              <MetricCard label="المبيعات" value={formatMoney(summary?.totals.sales ?? 0, restaurant.currency)} tone="green" />
-              <MetricCard label="صافي تقديري" value={formatMoney(summary?.totals.net ?? 0, restaurant.currency)} />
-              <MetricCard label="طلبات مفتوحة" value={String(summary?.orders.open ?? 0)} tone="amber" />
-              <MetricCard label="مخزون منخفض" value={String(summary?.inventory.lowStockCount ?? 0)} tone={(summary?.inventory.lowStockCount ?? 0) > 0 ? "red" : "green"} />
+              <OperationsMetric label="المبيعات" value={formatMoney(summary?.totals.sales ?? 0, restaurant.currency)} tone="success" />
+              <OperationsMetric label="صافي تقديري" value={formatMoney(summary?.totals.net ?? 0, restaurant.currency)} />
+              <OperationsMetric label="طلبات مفتوحة" value={String(summary?.orders.open ?? 0)} tone="warning" />
+              <OperationsMetric label="مخزون منخفض" value={String(summary?.inventory.lowStockCount ?? 0)} tone={(summary?.inventory.lowStockCount ?? 0) > 0 ? "danger" : "success"} />
             </section>
 
-            <ProPanel title="الوحدات">
+            <AppSurface title="الوحدات">
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {cards.map((card) => {
                   const Icon = card.icon;
                   const enabled = modules[card.module];
                   return (
-                    <Link key={`${card.module}-${card.href}`} href={enabled ? card.href : "/owner/operations"} className={`rounded-lg border p-4 transition hover:-translate-y-0.5 ${enabled ? "border-slate-200 bg-white shadow-sm" : "border-slate-200 bg-slate-50 opacity-70"}`}>
+                    <Link
+                      key={`${card.module}-${card.href}`}
+                      href={enabled ? card.href : "/owner/operations"}
+                      className={cn(
+                        "rounded-app-lg border p-4 transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft",
+                        enabled
+                          ? "border-app-border bg-app-surface hover:border-app-primary hover:bg-app-primary-soft"
+                          : "border-app-border bg-app-surface-muted opacity-75"
+                      )}
+                    >
                       <div className="flex items-start justify-between gap-3">
-                        <div className="grid h-10 w-10 place-items-center rounded-md bg-slate-950 text-white">
+                        <div className={cn("grid h-10 w-10 place-items-center rounded-app-md border", enabled ? "border-app-primary-soft bg-app-primary-soft text-app-primary" : "border-app-border bg-app-surface text-app-muted")}>
                           <Icon className="h-5 w-5" />
                         </div>
-                        <span className={`rounded-full px-3 py-1 text-xs font-black ${enabled ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{enabled ? "مفعلة" : "مقفلة"}</span>
+                        <AppBadge variant={enabled ? "success" : "neutral"}>{enabled ? "مفعلة" : "مقفلة"}</AppBadge>
                       </div>
-                      <h2 className="mt-3 font-black">{card.title}</h2>
-                      <p className="mt-1 text-sm font-bold leading-6 text-slate-500">{enabled ? card.text : `وحدة ${moduleLabels[card.module]} غير مفعلة في هذه الخطة.`}</p>
+                      <h2 className="mt-3 text-app-panel-title font-semibold text-app-ink">{card.title}</h2>
+                      <p className="mt-1 text-app-body text-app-muted">{enabled ? card.text : `وحدة ${moduleLabels[card.module]} غير مفعلة في هذه الخطة.`}</p>
                     </Link>
                   );
                 })}
               </div>
-            </ProPanel>
+            </AppSurface>
           </>
         )}
       </div>
     </OwnerAppShell>
+  );
+}
+
+function OperationsMetric({
+  label,
+  value,
+  tone = "neutral"
+}: {
+  label: string;
+  value: string;
+  tone?: "neutral" | "success" | "warning" | "danger";
+}) {
+  const styles = {
+    neutral: "border-app-border bg-app-surface text-app-ink",
+    success: "border-app-success-soft bg-app-success-soft text-app-success",
+    warning: "border-app-warning-soft bg-app-warning-soft text-app-warning",
+    danger: "border-app-danger-soft bg-app-danger-soft text-app-danger"
+  };
+
+  return (
+    <div className={cn("rounded-app-lg border p-4", styles[tone])}>
+      <p className="text-app-helper font-semibold opacity-75">{label}</p>
+      <p className="mt-2 text-xl font-semibold">{value}</p>
+    </div>
   );
 }

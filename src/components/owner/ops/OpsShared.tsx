@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { OwnerAppShell, ProPanel } from "@/components/owner/dashboard/OwnerAppShell";
+import { OwnerAppShell } from "@/components/owner/dashboard/OwnerAppShell";
+import { AppButton, AppEmptyState, cn } from "@/components/shared";
 import { formatMoney } from "@/lib/format";
 import { moduleLabels, normalizeModules } from "@/lib/modules";
 import { loadRestaurantWithOfflineFallback } from "@/offline/repositories/restaurant";
@@ -104,9 +105,13 @@ export function OpsShell({
   return (
     <OwnerAppShell restaurant={state.restaurant} modules={state.modules} title={title} eyebrow={eyebrow} busy={state.busy} onRefresh={onRefresh}>
       <div className="mx-auto max-w-7xl">
-        <nav className="mb-4 flex gap-2 overflow-x-auto rounded-lg border border-slate-200 bg-white p-2 shadow-sm lg:hidden">
+        <nav className="mb-4 flex gap-2 overflow-x-auto rounded-app-lg border border-app-border bg-app-surface p-2 lg:hidden">
           {opsLinks.map((link) => (
-            <Link key={link.href} href={link.href} className="shrink-0 rounded-md px-3 py-2 text-sm font-black text-slate-600 hover:bg-slate-50">
+            <Link
+              key={link.href}
+              href={link.href}
+              className="shrink-0 rounded-app-md px-3 py-2 text-sm font-semibold text-app-muted transition-colors hover:bg-app-surface-muted hover:text-app-ink focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft"
+            >
               {link.label}
             </Link>
           ))}
@@ -128,102 +133,20 @@ const opsLinks = [
   { href: "/owner/operations/accounting", label: "المحاسبة" }
 ];
 
-export function Message({ text }: { text: string }) {
-  return <p className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-black text-red-800">{text}</p>;
+function Message({ text }: { text: string }) {
+  return <p className="mb-4 rounded-app-md border border-app-danger-soft bg-app-danger-soft p-3 text-app-body font-semibold text-app-danger">{text}</p>;
 }
 
-export function Loading() {
+function Loading() {
   return (
-    <div className="grid min-h-[280px] place-items-center rounded-lg border border-slate-200 bg-white">
-      <RefreshCw className="h-6 w-6 animate-spin text-amber-600" />
+    <div className="grid min-h-[280px] place-items-center rounded-app-lg border border-app-border bg-app-surface">
+      <RefreshCw className="h-6 w-6 animate-spin text-app-primary" />
     </div>
   );
 }
 
-export function Empty({ title, text }: { title: string; text: string }) {
-  return (
-    <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center">
-      <p className="font-black">{title}</p>
-      <p className="mt-2 text-sm font-bold text-slate-500">{text}</p>
-    </div>
-  );
-}
-
-export function Panel({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
-  return <ProPanel title={title} action={action}>{children}</ProPanel>;
-}
-
-export function Field({ label, value, onChange, type = "text", min }: { label: string; value: string | number; onChange: (value: string) => void; type?: string; min?: string }) {
-  return (
-    <label className="grid gap-1 text-sm font-black">
-      <span>{label}</span>
-      <input
-        value={value}
-        type={type}
-        min={min}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-11 rounded-md border border-slate-200 bg-white px-3 font-bold outline-none focus:border-amber-400 focus:ring-4 focus:ring-amber-100"
-      />
-    </label>
-  );
-}
-
-export function SelectField({ label, value, options, onChange }: { label: string; value: string; options: Array<{ value: string; label: string }>; onChange: (value: string) => void }) {
-  return (
-    <label className="grid gap-1 text-sm font-black">
-      <span>{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)} className="h-11 rounded-md border border-slate-200 bg-white px-3 font-bold outline-none focus:border-amber-400 focus:ring-4 focus:ring-amber-100">
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-export function TextArea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return (
-    <label className="grid gap-1 text-sm font-black">
-      <span>{label}</span>
-      <textarea value={value} onChange={(event) => onChange(event.target.value)} className="min-h-24 rounded-md border border-slate-200 bg-white p-3 font-bold outline-none focus:border-amber-400 focus:ring-4 focus:ring-amber-100" />
-    </label>
-  );
-}
-
-export function PrimaryButton({ children, disabled }: { children: React.ReactNode; disabled?: boolean }) {
-  return (
-    <button disabled={disabled} className="inline-flex h-11 items-center justify-center rounded-md bg-amber-500 px-4 text-sm font-black text-white disabled:bg-slate-300">
-      {children}
-    </button>
-  );
-}
-
-export function SecondaryButton({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
-  return (
-    <button type="button" onClick={onClick} className="inline-flex h-10 items-center justify-center rounded-md border border-slate-200 bg-white px-3 text-sm font-black text-slate-700">
-      {children}
-    </button>
-  );
-}
-
-export function DangerButton({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
-  return (
-    <button type="button" onClick={onClick} className="inline-flex h-10 items-center justify-center rounded-md border border-red-200 bg-red-50 px-3 text-sm font-black text-red-700">
-      {children}
-    </button>
-  );
-}
-
-export function StatusBadge({ label, tone = "slate" }: { label: string; tone?: "slate" | "green" | "amber" | "red" }) {
-  const styles = {
-    slate: "bg-slate-100 text-slate-600",
-    green: "bg-emerald-50 text-emerald-700",
-    amber: "bg-amber-50 text-amber-700",
-    red: "bg-red-50 text-red-700"
-  };
-  return <span className={`rounded-full px-3 py-1 text-xs font-black ${styles[tone]}`}>{label}</span>;
+function Empty({ title, text }: { title: string; text: string }) {
+  return <AppEmptyState title={title} description={text} />;
 }
 
 const operationalStatusActions: Array<{ status: Exclude<OrderStatus, "DRAFT" | "COMPLETED" | "CANCELLED">; label: string }> = [
@@ -262,7 +185,7 @@ export function OrderStatusActions({
 
   if (closed) {
     return (
-      <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm font-black text-slate-600">
+      <div className="rounded-app-md border border-app-border bg-app-surface-muted p-3 text-app-body font-semibold text-app-muted">
         الطلب {orderStatusLabels[status]}.
       </div>
     );
@@ -271,36 +194,36 @@ export function OrderStatusActions({
   return (
     <div className="flex flex-wrap gap-2">
       {operationalStatusActions.map((action) => (
-        <button
+        <AppButton
           key={action.status}
           type="button"
+          variant={status === action.status ? "primary" : "secondary"}
+          size="sm"
           disabled={busy || status === action.status}
           onClick={() => onStatusChange(action.status)}
-          className={`inline-flex h-10 items-center justify-center rounded-md px-3 text-sm font-black transition disabled:cursor-not-allowed ${
-            status === action.status
-              ? "bg-slate-900 text-white"
-              : "border border-slate-200 bg-white text-slate-700 hover:border-amber-300 hover:bg-amber-50"
-          } ${busy ? "opacity-60" : ""}`}
+          className={cn(busy && "opacity-60")}
         >
           {action.label}
-        </button>
+        </AppButton>
       ))}
-      <button
+      <AppButton
         type="button"
+        size="sm"
         disabled={busy}
         onClick={onComplete}
-        className="inline-flex h-10 items-center justify-center rounded-md bg-emerald-600 px-3 text-sm font-black text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
       >
         إنهاء الطلب
-      </button>
-      <button
+      </AppButton>
+      <AppButton
         type="button"
+        variant="ghost"
+        size="sm"
         disabled={busy}
         onClick={onCancel}
-        className="inline-flex h-10 items-center justify-center rounded-md border border-red-200 bg-red-50 px-3 text-sm font-black text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+        className="text-app-danger hover:bg-app-danger-soft"
       >
         إلغاء
-      </button>
+      </AppButton>
     </div>
   );
 }

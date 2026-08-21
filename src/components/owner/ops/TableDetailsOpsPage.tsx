@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { PopupForm } from "@/components/shared";
+import { AppBadge, AppButton, AppEmptyState, AppFieldShell, AppInput, AppPageHeader, AppSelect, AppSurface, AppTextarea, PopupForm, cn } from "@/components/shared";
 import { formatInteger } from "@/lib/format";
 import { useLiveQuery } from "@/offline/hooks/useLiveQuery";
 import { cancelLocalOrder, completeLocalOrder, createLocalOrder, getLocalOrder, hydrateOrders, updateLocalOrder, type OrderCreateInput } from "@/offline/repositories/orders";
@@ -12,23 +12,7 @@ import { hydrateReferenceData, listLocalCashRegisters, listLocalCategories, list
 import { getLocalTable, hydrateTables, listLocalTables, saveLocalTable, type OfflineContext } from "@/offline/repositories/tables";
 import type { Category, MenuItem } from "@/types/menu";
 import type { CashRegister, OpsOrder, OpsTable, OrderStatus, PaymentMethod, RecipeIngredient } from "@/types/ops";
-import {
-  DangerButton,
-  Empty,
-  Field,
-  money,
-  OrderStatusActions,
-  orderStatusLabels,
-  OpsShell,
-  Panel,
-  paymentAmountForMethod,
-  PrimaryButton,
-  SecondaryButton,
-  SelectField,
-  StatusBadge,
-  TextArea,
-  useOpsPage
-} from "./OpsShared";
+import { money, OrderStatusActions, orderStatusLabels, OpsShell, paymentAmountForMethod, useOpsPage } from "./OpsShared";
 import { OrderReceiptPrintButton } from "./OrderReceiptPrintButton";
 import { option, orderTypes, paymentMethods, tableStatuses } from "./OpsPageShared";
 
@@ -64,6 +48,14 @@ type StartCartLine = {
   modifiers: string[];
 };
 
+type CompleteCurrentOrderConfirmation = {
+  order: OpsOrder;
+  paymentMethod: PaymentMethod;
+  paidAmount: number;
+  cashRegisterId: string;
+  note: string;
+};
+
 const moveOrderMessageKey = "ops-table-order-move-message";
 
 export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
@@ -84,6 +76,8 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
   const [activeStartCategoryId, setActiveStartCategoryId] = useState("all");
   const [moveOrderOpen, setMoveOrderOpen] = useState(false);
   const [moveTargetTableId, setMoveTargetTableId] = useState("");
+  const [pendingMoveTable, setPendingMoveTable] = useState<OpsTable | null>(null);
+  const [pendingCompleteOrder, setPendingCompleteOrder] = useState<CompleteCurrentOrderConfirmation | null>(null);
   const tenantId = state.restaurant?.id ?? "";
   const offlineContext = useMemo<OfflineContext | null>(() => {
     if (!state.token || !tenantId) return null;
@@ -326,6 +320,12 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
   function closeMoveOrder() {
     setMoveOrderOpen(false);
     setMoveTargetTableId("");
+    setPendingMoveTable(null);
+  }
+
+  function closeMoveConfirmation() {
+    setPendingMoveTable(null);
+    setMoveOrderOpen(true);
   }
 
   async function moveOrder(event: FormEvent<HTMLFormElement>) {
@@ -337,8 +337,13 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
       state.setMessage("اختر طاولة فارغة ومتاحة لنقل الطلب.");
       return;
     }
-    if (!window.confirm(`نقل الطلب ${order.name || order.id} إلى الطاولة ${targetTable.name}؟`)) return;
+    setMoveOrderOpen(false);
+    setPendingMoveTable(targetTable);
+  }
 
+  async function confirmMoveOrder() {
+    if (!order || lockedOrder || !pendingMoveTable) return;
+    const targetTable = pendingMoveTable;
     await runOrderAction(async () => {
       if (!offlineContext) return;
       await updateLocalOrder(offlineContext, order.id, { tableId: targetTable.id });
@@ -374,16 +379,27 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
       state.setMessage("أدخل المبلغ المدفوع قبل إنهاء طلب الدفع المقسّم.");
       return;
     }
-    if (!window.confirm(`إنهاء الطلب ${order.id} بقيمة ${money(order.total, state.restaurant?.currency)}؟`)) return;
+    setPendingCompleteOrder({
+      order,
+      paymentMethod: completeForm.paymentMethod as PaymentMethod,
+      paidAmount,
+      cashRegisterId: completeForm.cashRegisterId,
+      note: completeForm.note
+    });
+  }
 
+  async function confirmCompleteCurrentOrder() {
+    if (!pendingCompleteOrder) return;
+    const { order, paymentMethod, paidAmount, cashRegisterId, note } = pendingCompleteOrder;
     await runOrderAction(async () => {
       if (!offlineContext) return;
       await completeLocalOrder(offlineContext, order.id, {
-        paymentMethod: completeForm.paymentMethod as PaymentMethod,
+        paymentMethod,
         paidAmount,
-        cashRegisterId: completeForm.cashRegisterId || undefined,
-        note: completeForm.note
+        cashRegisterId: cashRegisterId || undefined,
+        note
       });
+      setPendingCompleteOrder(null);
     });
   }
 
@@ -450,26 +466,32 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
 
   return (
     <OpsShell title="تفاصيل الطاولة" eyebrow="الطاولات والطلبات المفتوحة" module="tables" state={state} onRefresh={() => void Promise.all([state.loadRestaurant(), load()])}>
-      <div className="mb-4">
-        <Link href="/owner/operations/tables" className="inline-flex h-10 items-center rounded-md border border-slate-200 bg-white px-3 text-sm font-black text-slate-700">
-          العودة للطاولات
-        </Link>
-      </div>
-
-      <Panel
-        title="بيانات الطاولة"
-        action={table ? (
+      <AppPageHeader
+        className="mb-4"
+        title={table ? `الطاولة ${table.name}` : "تفاصيل الطاولة"}
+        description="متابعة حالة الطاولة والطلب المفتوح عليها."
+        primaryAction={table ? (
           <div className="flex flex-wrap gap-2">
-            {canStartOrder ? <button type="button" onClick={openStartOrder} className="inline-flex h-10 items-center justify-center rounded-md bg-amber-500 px-3 text-sm font-black text-white">بدء طلب</button> : null}
-            <SecondaryButton onClick={openTableForm}>تعديل الطاولة</SecondaryButton>
+            {canStartOrder ? <AppButton type="button" onClick={openStartOrder}>بدء طلب</AppButton> : null}
+            <AppButton type="button" variant="secondary" onClick={openTableForm}>تعديل الطاولة</AppButton>
           </div>
         ) : null}
-      >
+        secondaryActions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href="/owner/operations/tables" className="inline-flex h-10 items-center rounded-app-md border border-app-border bg-app-surface px-3 text-sm font-semibold text-app-ink transition-colors hover:bg-app-surface-muted focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft">
+              العودة للطاولات
+            </Link>
+            {table ? <TableStatusBadge status={table.status} /> : null}
+          </div>
+        }
+      />
+
+      <AppSurface className="p-4">
         {table ? (
           <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-start">
             <div>
-              <h2 className="text-5xl font-black text-slate-950 text-center w-full">
-                <div className="select-none inline-block rounded-md border border-slate-200 bg-slate-50 px-4 py-2">
+              <h2 className="w-full text-center text-4xl font-semibold text-app-ink">
+                <div className="inline-block select-none rounded-app-md border border-app-border bg-app-surface-muted px-4 py-2">
                   {table.name}
                 </div>
               </h2>
@@ -480,38 +502,41 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
                 <TableFact label="الطلب المفتوح" value={table.currentOrderId || "لا يوجد"} />
               </div>
             </div>
-            <StatusBadge label={table.status} tone={table.status === "AVAILABLE" ? "green" : table.status === "DISABLED" ? "red" : "amber"} />
+            <TableStatusBadge status={table.status} />
           </div>
-        ) : <Empty title="لم يتم العثور على الطاولة" text="تحقق من الرابط أو ارجع لقائمة الطاولات." />}
-      </Panel>
+        ) : <AppEmptyState title="لم يتم العثور على الطاولة" description="تحقق من الرابط أو ارجع لقائمة الطاولات." />}
+      </AppSurface>
 
       <div className="mt-4">
-        <Panel title="الطلب على الطاولة">
+        <AppSurface className="p-4">
+          <div className="mb-4">
+            <h2 className="text-app-panel-title font-semibold text-app-ink">الطلب على الطاولة</h2>
+          </div>
           {order ? (
             <form onSubmit={saveOrder} className="grid gap-3">
-              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-2">
+              <div className="flex flex-wrap items-center gap-2 rounded-app-lg border border-app-border bg-app-surface p-2">
                 <div className="min-w-44 flex-1">
-                  <p className="truncate text-sm font-black text-slate-950">{order.name || order.id}</p>
-                  <p className="mt-0.5 truncate text-[11px] font-bold text-slate-500">#{order.id}</p>
+                  <p className="truncate text-sm font-semibold text-app-ink">{order.name || order.id}</p>
+                  <p className="mt-0.5 truncate text-app-helper text-app-muted">#{order.id}</p>
                 </div>
-                <div className="rounded-md bg-slate-50 px-3 py-2 text-xs font-black text-slate-700">
+                <div className="rounded-app-md bg-app-surface-muted px-3 py-2 text-app-meta font-semibold text-app-ink">
                   {money(order.total, state.restaurant?.currency)}
                 </div>
-                <StatusBadge label={orderStatusLabels[order.status]} tone={order.status === "COMPLETED" ? "green" : order.status === "CANCELLED" ? "red" : "amber"} />
-                <label className="flex h-10 min-w-56 flex-1 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-xs font-black text-slate-500">
+                <OrderStatusBadge status={order.status} />
+                <label className="flex h-10 min-w-56 flex-1 items-center gap-2 rounded-app-md border border-app-border bg-app-surface px-2 text-app-helper font-semibold text-app-muted focus-within:border-app-primary focus-within:ring-4 focus-within:ring-app-primary-soft">
                   <span className="shrink-0">اسم الطلب</span>
                   <input
                     value={orderForm.name}
                     onChange={(event) => setOrderForm({ ...orderForm, name: event.target.value })}
-                    className="min-w-0 flex-1 bg-transparent text-sm font-black text-slate-950 outline-none"
+                    className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-app-ink outline-none"
                   />
                 </label>
-                <label className="flex h-10 min-w-44 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-xs font-black text-slate-500">
+                <label className="flex h-10 min-w-44 items-center gap-2 rounded-app-md border border-app-border bg-app-surface px-2 text-app-helper font-semibold text-app-muted focus-within:border-app-primary focus-within:ring-4 focus-within:ring-app-primary-soft">
                   <span className="shrink-0">نوع الطلب</span>
                   <select
                     value={orderForm.type}
                     onChange={(event) => setOrderForm({ ...orderForm, type: event.target.value })}
-                    className="min-w-0 flex-1 bg-transparent text-sm font-black text-slate-950 outline-none"
+                    className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-app-ink outline-none"
                   >
                     {orderTypes.map((type) => (
                       <option key={type} value={type}>{option(type).label}</option>
@@ -526,85 +551,99 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
                   onCancel={() => void cancelCurrentOrder()}
                 />
                 <OrderReceiptPrintButton order={order} restaurant={state.restaurant} table={table} token={state.token} disabled={!order.items.length} />
-                {!lockedOrder ? <SecondaryButton onClick={openMoveOrder}>نقل الطلب</SecondaryButton> : null}
+                {!lockedOrder ? <AppButton type="button" variant="secondary" size="sm" onClick={openMoveOrder}>نقل الطلب</AppButton> : null}
               </div>
 
               {lockedOrder ? (
-                <p className="rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-xs font-black text-amber-800">
+                <p className="rounded-app-md border border-app-warning-soft bg-app-warning-soft px-3 py-2 text-app-helper font-semibold text-app-warning">
                   الطلب مغلق ماليًا. يمكن عرض التفاصيل، لكن لا يمكن تعديل البنود بعد الإتمام أو الإلغاء أو إنشاء الفاتورة.
                 </p>
               ) : null}
 
               {!lockedOrder ? (
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="rounded-app-lg border border-app-border bg-app-surface-muted p-3">
                   <div className="grid gap-3 md:grid-cols-[1fr_215px] ">
-                    <SelectField label="إضافة صنف" value={draftLine.menuItemId} options={menuItems.map((item) => ({ value: item.id, label: `${item.name} - ${money(item.price, state.restaurant?.currency)}` }))} onChange={(menuItemId) => setDraftLine({ ...draftLine, menuItemId })} />
-                    <Field label="الكمية" type="number" min="1" value={draftLine.quantity} onChange={(quantity) => setDraftLine({ ...draftLine, quantity: Number(quantity) })} />
+                    <AppFieldShell label="إضافة صنف">
+                      <AppSelect value={draftLine.menuItemId} onChange={(event) => setDraftLine({ ...draftLine, menuItemId: event.target.value })}>
+                        {menuItems.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name} - {money(item.price, state.restaurant?.currency)}
+                          </option>
+                        ))}
+                      </AppSelect>
+                    </AppFieldShell>
+                    <AppFieldShell label="الكمية">
+                      <AppInput type="number" min="1" value={draftLine.quantity} onChange={(event) => setDraftLine({ ...draftLine, quantity: Number(event.target.value) })} />
+                    </AppFieldShell>
                   </div>
                   <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-                    <Field label="ملاحظة الصنف" value={draftLine.notes} onChange={(notes) => setDraftLine({ ...draftLine, notes })} />
-                    <SecondaryButton onClick={addLine}>إضافة</SecondaryButton>
+                    <AppFieldShell label="ملاحظة الصنف">
+                      <AppInput value={draftLine.notes} onChange={(event) => setDraftLine({ ...draftLine, notes: event.target.value })} />
+                    </AppFieldShell>
+                    <AppButton type="button" variant="secondary" onClick={addLine}>إضافة</AppButton>
                   </div>
                 </div>
               ) : null}
 
               {lines.length ? (
-                <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-                  <table className="w-full min-w-[760px] text-right text-sm">
-                    <thead className="bg-slate-50 text-xs font-black text-slate-500">
-                      <tr>
-                        <th className="px-3 py-2">الصنف</th>
-                        <th className="px-3 py-2">السعر</th>
-                        <th className="w-28 px-3 py-2">الكمية</th>
-                        <th className="px-3 py-2">ملاحظة</th>
-                        <th className="px-3 py-2">الإجمالي</th>
-                        {!lockedOrder ? <th className="w-20 px-3 py-2">إجراء</th> : null}
+                <div className="overflow-x-auto rounded-app-lg border border-app-border bg-app-surface">
+                  <table className="w-full min-w-[720px] text-app-table">
+                    <thead className="bg-app-surface-muted text-app-meta text-app-muted">
+                      <tr className="[&>th]:border-b [&>th]:border-app-border [&>th]:px-3 [&>th]:py-2.5 [&>th]:text-start [&>th]:font-semibold">
+                        <th>الصنف</th>
+                        <th>السعر</th>
+                        <th className="w-28">الكمية</th>
+                        <th>ملاحظة</th>
+                        <th>الإجمالي</th>
+                        {!lockedOrder ? <th className="w-20">إجراء</th> : null}
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="divide-y divide-app-border">
                       {lines.map((line, index) => (
-                        <tr key={`${line.menuItemId}-${index}`} className="border-t border-slate-100 align-top">
-                          <td className="px-3 py-2">
-                            <p className="font-black text-slate-900">{line.name}</p>
+                        <tr key={`${line.menuItemId}-${index}`} className="align-top transition-colors hover:bg-app-surface-muted">
+                          <td className="px-3 py-3">
+                            <p className="font-semibold text-app-ink">{line.name}</p>
                             {state.modules?.inventory && !recipes.some((entry) => entry.menuItemId === line.menuItemId) ? (
-                              <p className="mt-1 text-xs font-black text-amber-700">لا توجد مكونات مخزون مرتبطة بهذا الصنف.</p>
+                              <p className="mt-1 text-app-helper font-semibold text-app-warning">لا توجد مكونات مخزون مرتبطة بهذا الصنف.</p>
                             ) : null}
                           </td>
-                          <td className="whitespace-nowrap px-3 py-2 font-bold text-slate-600">{money(line.unitPrice, state.restaurant?.currency)}</td>
-                          <td className="px-3 py-2">
+                          <td className="whitespace-nowrap px-3 py-3 font-medium text-app-muted">{money(line.unitPrice, state.restaurant?.currency)}</td>
+                          <td className="px-3 py-3">
                             {lockedOrder ? (
-                              <span className="font-black text-slate-700">{formatInteger(line.quantity)}</span>
+                              <span className="font-semibold text-app-ink">{formatInteger(line.quantity)}</span>
                             ) : (
-                              <input
+                              <AppInput
                                 type="number"
                                 min="1"
                                 value={line.quantity}
                                 onChange={(event) => updateLine(index, { quantity: Number(event.target.value) })}
-                                className="h-9 w-20 rounded-md border border-slate-200 bg-white px-2 font-bold outline-none focus:border-amber-400 focus:ring-4 focus:ring-amber-100"
+                                className="h-9 w-20"
                               />
                             )}
                           </td>
-                          <td className="px-3 py-2">
+                          <td className="px-3 py-3">
                             {lockedOrder ? (
-                              <span className="font-bold text-slate-600">{line.notes || "-"}</span>
+                              <span className="font-medium text-app-muted">{line.notes || "-"}</span>
                             ) : (
-                              <input
+                              <AppInput
                                 value={line.notes}
                                 onChange={(event) => updateLine(index, { notes: event.target.value })}
-                                className="h-9 w-full min-w-48 rounded-md border border-slate-200 bg-white px-2 font-bold outline-none focus:border-amber-400 focus:ring-4 focus:ring-amber-100"
+                                className="h-9 min-w-44"
                               />
                             )}
                           </td>
-                          <td className="whitespace-nowrap px-3 py-2 font-black text-slate-900">{money(line.unitPrice * line.quantity, state.restaurant?.currency)}</td>
+                          <td className="whitespace-nowrap px-3 py-3 font-semibold text-app-ink">{money(line.unitPrice * line.quantity, state.restaurant?.currency)}</td>
                           {!lockedOrder ? (
-                            <td className="px-3 py-2">
-                              <button
+                            <td className="px-3 py-3">
+                              <AppButton
                                 type="button"
+                                variant="ghost"
+                                size="sm"
                                 onClick={() => setLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}
-                                className="inline-flex h-9 items-center justify-center rounded-md border border-red-200 bg-red-50 px-3 text-xs font-black text-red-700"
+                                className="text-app-danger hover:bg-app-danger-soft"
                               >
                                 حذف
-                              </button>
+                              </AppButton>
                             </td>
                           ) : null}
                         </tr>
@@ -612,57 +651,98 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
                     </tbody>
                   </table>
                 </div>
-              ) : <Empty title="لا توجد بنود" text="أضف صنفًا واحدًا على الأقل إلى الطلب." />}
+              ) : <AppEmptyState title="لا توجد بنود" description="أضف صنفًا واحدًا على الأقل إلى الطلب." />}
 
               <div className="grid gap-3 md:grid-cols-4">
-                <Field label="خصم" type="number" min="0" value={orderForm.discount} onChange={(discount) => setOrderForm({ ...orderForm, discount: Number(discount) })} />
-                <Field label="ضريبة" type="number" min="0" value={orderForm.tax} onChange={(tax) => setOrderForm({ ...orderForm, tax: Number(tax) })} />
-                <Field label="خدمة" type="number" min="0" value={orderForm.serviceCharge} onChange={(serviceCharge) => setOrderForm({ ...orderForm, serviceCharge: Number(serviceCharge) })} />
-                <SelectField label="طريقة الدفع" value={orderForm.paymentMethod} options={paymentMethods.map(option)} onChange={(paymentMethod) => setOrderForm({ ...orderForm, paymentMethod })} />
+                <AppFieldShell label="خصم">
+                  <AppInput type="number" min="0" value={orderForm.discount} onChange={(event) => setOrderForm({ ...orderForm, discount: Number(event.target.value) })} />
+                </AppFieldShell>
+                <AppFieldShell label="ضريبة">
+                  <AppInput type="number" min="0" value={orderForm.tax} onChange={(event) => setOrderForm({ ...orderForm, tax: Number(event.target.value) })} />
+                </AppFieldShell>
+                <AppFieldShell label="خدمة">
+                  <AppInput type="number" min="0" value={orderForm.serviceCharge} onChange={(event) => setOrderForm({ ...orderForm, serviceCharge: Number(event.target.value) })} />
+                </AppFieldShell>
+                <AppFieldShell label="طريقة الدفع">
+                  <AppSelect value={orderForm.paymentMethod} onChange={(event) => setOrderForm({ ...orderForm, paymentMethod: event.target.value })}>
+                    {paymentMethods.map((method) => <option key={method} value={method}>{option(method).label}</option>)}
+                  </AppSelect>
+                </AppFieldShell>
               </div>
               {!lockedOrder ? (
-                <div className="grid gap-3 rounded-lg border border-emerald-100 bg-emerald-50 p-3 md:grid-cols-4">
-                  <SelectField label="طريقة الدفع عند الإنهاء" value={completeForm.paymentMethod} options={paymentMethods.map(option)} onChange={(paymentMethod) => setCompleteForm({ ...completeForm, paymentMethod, paidAmount: paymentMethod === "DEBT" ? 0 : order.total })} />
-                  <Field label="المدفوع" type="number" min="0" value={completeForm.paidAmount} onChange={(paidAmount) => setCompleteForm({ ...completeForm, paidAmount: Number(paidAmount) })} />
+                <div className="grid gap-3 rounded-app-lg border border-app-success-soft bg-app-success-soft p-3 md:grid-cols-4">
+                  <AppFieldShell label="طريقة الدفع عند الإنهاء">
+                    <AppSelect value={completeForm.paymentMethod} onChange={(event) => setCompleteForm({ ...completeForm, paymentMethod: event.target.value, paidAmount: event.target.value === "DEBT" ? 0 : order.total })}>
+                      {paymentMethods.map((method) => <option key={method} value={method}>{option(method).label}</option>)}
+                    </AppSelect>
+                  </AppFieldShell>
+                  <AppFieldShell label="المدفوع">
+                    <AppInput type="number" min="0" value={completeForm.paidAmount} onChange={(event) => setCompleteForm({ ...completeForm, paidAmount: Number(event.target.value) })} />
+                  </AppFieldShell>
                   {cashRegisters.length ? (
-                    <SelectField label="الصندوق" value={completeForm.cashRegisterId} options={[{ value: "", label: "بدون صندوق" }, ...cashRegisters.map((register) => ({ value: register.id, label: `${register.name} - ${money(register.currentBalance, state.restaurant?.currency)}` }))]} onChange={(cashRegisterId) => setCompleteForm({ ...completeForm, cashRegisterId })} />
+                    <AppFieldShell label="الصندوق">
+                      <AppSelect value={completeForm.cashRegisterId} onChange={(event) => setCompleteForm({ ...completeForm, cashRegisterId: event.target.value })}>
+                        <option value="">بدون صندوق</option>
+                        {cashRegisters.map((register) => (
+                          <option key={register.id} value={register.id}>
+                            {register.name} - {money(register.currentBalance, state.restaurant?.currency)}
+                          </option>
+                        ))}
+                      </AppSelect>
+                    </AppFieldShell>
                   ) : (
-                    <Field label="الصندوق" value={completeForm.cashRegisterId} onChange={(cashRegisterId) => setCompleteForm({ ...completeForm, cashRegisterId })} />
+                    <AppFieldShell label="الصندوق">
+                      <AppInput value={completeForm.cashRegisterId} onChange={(event) => setCompleteForm({ ...completeForm, cashRegisterId: event.target.value })} />
+                    </AppFieldShell>
                   )}
-                  <Field label="ملاحظة الدفع" value={completeForm.note} onChange={(note) => setCompleteForm({ ...completeForm, note })} />
+                  <AppFieldShell label="ملاحظة الدفع">
+                    <AppInput value={completeForm.note} onChange={(event) => setCompleteForm({ ...completeForm, note: event.target.value })} />
+                  </AppFieldShell>
                 </div>
               ) : null}
-              <TextArea label="ملاحظات الطلب" value={orderForm.notes} onChange={(notes) => setOrderForm({ ...orderForm, notes })} />
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                <p className="font-black">الإجمالي المتوقع: {money(previewTotal, state.restaurant?.currency)}</p>
-                <PrimaryButton disabled={lockedOrder || !lines.length}>حفظ الطلب</PrimaryButton>
+              <AppFieldShell label="ملاحظات الطلب">
+                <AppTextarea value={orderForm.notes} onChange={(event) => setOrderForm({ ...orderForm, notes: event.target.value })} />
+              </AppFieldShell>
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-app-lg border border-app-border bg-app-surface-muted p-3">
+                <p className="font-semibold text-app-ink">الإجمالي المتوقع: {money(previewTotal, state.restaurant?.currency)}</p>
+                <AppButton type="submit" disabled={lockedOrder || !lines.length}>حفظ الطلب</AppButton>
               </div>
             </form>
           ) : (
             <div className="grid gap-3">
-              <Empty title="لا يوجد طلب مفتوح" text="هذه الطاولة لا تحتوي على طلب مفتوح حاليًا." />
+              <AppEmptyState title="لا يوجد طلب مفتوح" description="هذه الطاولة لا تحتوي على طلب مفتوح حاليًا." />
               {canStartOrder ? (
                 <div className="flex justify-center">
-                  <button type="button" onClick={openStartOrder} className="inline-flex h-11 items-center justify-center rounded-md bg-amber-500 px-4 text-sm font-black text-white">
-                    بدء طلب
-                  </button>
+                  <AppButton type="button" onClick={openStartOrder}>بدء طلب</AppButton>
                 </div>
               ) : null}
             </div>
           )}
-        </Panel>
+        </AppSurface>
       </div>
 
       <PopupForm open={tableFormOpen} onClose={closeTableForm} title="تعديل الطاولة" maxWidth="md">
         <form onSubmit={saveTable} className="grid gap-3">
-          <Field label="الاسم/الرقم" value={tableForm.name} onChange={(name) => setTableForm({ ...tableForm, name })} />
-          <Field label="المنطقة" value={tableForm.area} onChange={(area) => setTableForm({ ...tableForm, area })} />
-          <Field label="السعة" type="number" min="1" value={tableForm.capacity} onChange={(capacity) => setTableForm({ ...tableForm, capacity: Number(capacity) })} />
-          <SelectField label="الحالة" value={tableForm.status} options={tableStatuses.map(option)} onChange={(status) => setTableForm({ ...tableForm, status })} />
-          <Field label="QR" value={tableForm.qrCode} onChange={(qrCode) => setTableForm({ ...tableForm, qrCode })} />
-          <div className="flex gap-2">
-            <PrimaryButton>حفظ الطاولة</PrimaryButton>
-            <SecondaryButton onClick={closeTableForm}>إلغاء</SecondaryButton>
+          <AppFieldShell label="الاسم/الرقم">
+            <AppInput value={tableForm.name} onChange={(event) => setTableForm({ ...tableForm, name: event.target.value })} />
+          </AppFieldShell>
+          <AppFieldShell label="المنطقة">
+            <AppInput value={tableForm.area} onChange={(event) => setTableForm({ ...tableForm, area: event.target.value })} />
+          </AppFieldShell>
+          <AppFieldShell label="السعة">
+            <AppInput type="number" min="1" value={tableForm.capacity} onChange={(event) => setTableForm({ ...tableForm, capacity: Number(event.target.value) })} />
+          </AppFieldShell>
+          <AppFieldShell label="الحالة">
+            <AppSelect value={tableForm.status} onChange={(event) => setTableForm({ ...tableForm, status: event.target.value })}>
+              {tableStatuses.map((status) => <option key={status} value={status}>{option(status).label}</option>)}
+            </AppSelect>
+          </AppFieldShell>
+          <AppFieldShell label="QR">
+            <AppInput value={tableForm.qrCode} onChange={(event) => setTableForm({ ...tableForm, qrCode: event.target.value })} />
+          </AppFieldShell>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row">
+            <AppButton type="button" variant="secondary" onClick={closeTableForm} className="w-full sm:w-auto">إلغاء</AppButton>
+            <AppButton type="submit" className="w-full sm:w-auto">حفظ الطاولة</AppButton>
           </div>
         </form>
       </PopupForm>
@@ -670,25 +750,28 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
       <PopupForm open={moveOrderOpen} onClose={closeMoveOrder} title="نقل الطلب" description={order && table ? `نقل ${order.name || order.id} من الطاولة ${table.name}` : undefined} maxWidth="md">
         {eligibleMoveTables.length ? (
           <form onSubmit={moveOrder} className="grid gap-3">
-            <SelectField
-              label="الطاولة الجديدة"
-              value={moveTargetTableId}
-              options={eligibleMoveTables.map((entry) => ({ value: entry.id, label: `${entry.name} - ${entry.area || "بدون منطقة"} - ${entry.capacity} مقاعد` }))}
-              onChange={setMoveTargetTableId}
-            />
-            <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-600">
+            <AppFieldShell label="الطاولة الجديدة">
+              <AppSelect value={moveTargetTableId} onChange={(event) => setMoveTargetTableId(event.target.value)}>
+                {eligibleMoveTables.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.name} - {entry.area || "بدون منطقة"} - {entry.capacity} مقاعد
+                  </option>
+                ))}
+              </AppSelect>
+            </AppFieldShell>
+            <p className="rounded-app-md border border-app-border bg-app-surface-muted px-3 py-2 text-app-helper font-semibold text-app-muted">
               سيتم نقل الطلب بكل تفاصيله إلى الطاولة المختارة، ولن يتم تغيير البنود أو الإجماليات.
             </p>
-            <div className="flex gap-2">
-              <PrimaryButton disabled={!moveTargetTableId || orderActionBusy}>تأكيد النقل</PrimaryButton>
-              <SecondaryButton onClick={closeMoveOrder}>إلغاء</SecondaryButton>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row">
+              <AppButton type="button" variant="secondary" onClick={closeMoveOrder} className="w-full sm:w-auto">إلغاء</AppButton>
+              <AppButton type="submit" disabled={!moveTargetTableId || orderActionBusy} className="w-full sm:w-auto">تأكيد النقل</AppButton>
             </div>
           </form>
         ) : (
           <div className="grid gap-3">
-            <Empty title="لا توجد طاولات فارغة" text="كل الطاولات المتاحة مشغولة أو معطلة حاليًا." />
+            <AppEmptyState title="لا توجد طاولات فارغة" description="كل الطاولات المتاحة مشغولة أو معطلة حاليًا." />
             <div className="flex justify-end">
-              <SecondaryButton onClick={closeMoveOrder}>إغلاق</SecondaryButton>
+              <AppButton type="button" variant="secondary" onClick={closeMoveOrder}>إغلاق</AppButton>
             </div>
           </div>
         )}
@@ -697,36 +780,41 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
       <PopupForm open={startOrderOpen} onClose={closeStartOrder} title="بدء طلب" description={table ? `الطاولة: ${table.name}` : undefined} maxWidth="xl">
         <form onSubmit={createOrder} className="grid gap-4">
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm font-black">
+            <div className="rounded-app-md border border-app-border bg-app-surface-muted p-3 text-app-body font-semibold text-app-ink">
               الطاولة: {table?.name ?? tableId}
             </div>
-            <Field label="اسم الطلب" value={startOrderForm.name} onChange={updateStartOrderName} />
-            <SelectField label="نوع الطلب" value={startOrderForm.type} options={orderTypes.map(option)} onChange={(type) => setStartOrderForm({ ...startOrderForm, type })} />
-            <Field label="التاريخ" type="date" value={startOrderForm.orderedDate} onChange={(orderedDate) => setStartOrderForm({ ...startOrderForm, orderedDate })} />
-            <Field label="الوقت" type="time" value={startOrderForm.orderedTime} onChange={updateStartOrderTime} />
+            <AppFieldShell label="اسم الطلب">
+              <AppInput value={startOrderForm.name} onChange={(event) => updateStartOrderName(event.target.value)} />
+            </AppFieldShell>
+            <AppFieldShell label="نوع الطلب">
+              <AppSelect value={startOrderForm.type} onChange={(event) => setStartOrderForm({ ...startOrderForm, type: event.target.value })}>
+                {orderTypes.map((type) => <option key={type} value={type}>{option(type).label}</option>)}
+              </AppSelect>
+            </AppFieldShell>
+            <AppFieldShell label="التاريخ">
+              <AppInput type="date" value={startOrderForm.orderedDate} onChange={(event) => setStartOrderForm({ ...startOrderForm, orderedDate: event.target.value })} />
+            </AppFieldShell>
+            <AppFieldShell label="الوقت">
+              <AppInput type="time" value={startOrderForm.orderedTime} onChange={(event) => updateStartOrderTime(event.target.value)} />
+            </AppFieldShell>
           </div>
 
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <label className="grid gap-1 text-sm font-black">
-              <span>بحث عن صنف</span>
-              <input
-                value={startItemQuery}
-                onChange={(event) => setStartItemQuery(event.target.value)}
-                placeholder="ابحث عن صنف..."
-                className="h-11 rounded-md border border-slate-200 bg-white px-3 font-bold outline-none focus:border-amber-400 focus:ring-4 focus:ring-amber-100"
-              />
-            </label>
+          <div className="rounded-app-lg border border-app-border bg-app-surface-muted p-3">
+            <AppFieldShell label="بحث عن صنف">
+              <AppInput value={startItemQuery} onChange={(event) => setStartItemQuery(event.target.value)} placeholder="ابحث عن صنف..." />
+            </AppFieldShell>
             <div className="mt-3 flex gap-2 overflow-x-auto pb-2">
               {startCategoryTabs.map((tab) => (
                 <button
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveStartCategoryId(tab.id)}
-                  className={`shrink-0 rounded-full border px-3 py-2 text-xs font-black transition ${
+                  className={cn(
+                    "shrink-0 rounded-app-md border px-3 py-2 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft",
                     activeStartCategoryId === tab.id
-                      ? "border-slate-950 bg-slate-950 text-white"
-                      : "border-slate-200 bg-white text-slate-700 hover:border-amber-300 hover:bg-amber-50"
-                  }`}
+                      ? "border-app-primary bg-app-primary-soft text-app-primary"
+                      : "border-app-border bg-app-surface text-app-muted hover:border-app-border-strong hover:bg-app-surface-muted hover:text-app-ink"
+                  )}
                 >
                   {tab.name} ({formatInteger(tab.count)})
                 </button>
@@ -744,62 +832,118 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
                           key={item.id}
                           type="button"
                           onClick={() => addStartItemToCart(item)}
-                          className="rounded-md border border-slate-200 bg-white p-2 text-right shadow-sm transition hover:border-amber-300 hover:bg-amber-50"
+                          className="min-h-16 rounded-app-md border border-app-border bg-app-surface p-2 text-start transition-colors hover:border-app-primary hover:bg-app-primary-soft focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft"
                         >
-                          <span className="block truncate text-sm font-black text-slate-950">{item.name}</span>
-                          <span className="mt-1 block text-xs font-bold text-slate-500">{money(item.price, state.restaurant?.currency)}</span>
+                          <span className="block truncate text-sm font-semibold text-app-ink">{item.name}</span>
+                          <span className="mt-1 block text-app-helper text-app-muted">{money(item.price, state.restaurant?.currency)}</span>
                           {state.modules?.inventory && !hasRecipe ? (
-                            <span className="mt-1 block text-[11px] font-black text-amber-700">لا توجد مكونات مخزون مرتبطة</span>
+                            <span className="mt-1 block text-[11px] font-semibold text-app-warning">لا توجد مكونات مخزون مرتبطة</span>
                           ) : null}
                         </button>
                       );
                     })}
                   </div>
                 ) : (
-                  <Empty title="لا توجد نتائج مطابقة" text="جرّب البحث باسم صنف آخر." />
+                  <AppEmptyState title="لا توجد نتائج مطابقة" description="جرّب البحث باسم صنف آخر." />
                 )
               ) : (
-                <Empty title="لا توجد أصناف" text="أضف أصنافًا إلى المنيو قبل إنشاء الطلب." />
+                <AppEmptyState title="لا توجد أصناف" description="أضف أصنافًا إلى المنيو قبل إنشاء الطلب." />
               )}
             </div>
           </div>
 
-          <div className="rounded-lg border border-slate-200 bg-white">
-            <div className="flex items-center justify-between border-b border-slate-100 p-3">
-              <p className="text-sm font-black">بنود الطلب</p>
-              <p className="text-xs font-black text-slate-500">{formatInteger(startCart.length)} صنف</p>
+          <div className="rounded-app-lg border border-app-border bg-app-surface">
+            <div className="flex items-center justify-between border-b border-app-border p-3">
+              <p className="text-sm font-semibold text-app-ink">بنود الطلب</p>
+              <p className="text-app-meta text-app-muted">{formatInteger(startCart.length)} صنف</p>
             </div>
             <div className="grid gap-2 p-3">
               {startCart.length ? startCart.map((line, index) => (
-                <div key={`${line.menuItemId}-${index}`} className="grid gap-2 rounded-md bg-slate-50 p-2">
+                <div key={`${line.menuItemId}-${index}`} className="grid gap-2 rounded-app-md bg-app-surface-muted p-2">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="font-black">{line.name}</p>
-                      <p className="text-xs font-bold text-slate-500">{money(line.unitPrice * line.quantity, state.restaurant?.currency)}</p>
+                      <p className="font-semibold text-app-ink">{line.name}</p>
+                      <p className="text-app-helper text-app-muted">{money(line.unitPrice * line.quantity, state.restaurant?.currency)}</p>
                     </div>
-                    <DangerButton onClick={() => setStartCart((current) => current.filter((_, lineIndex) => lineIndex !== index))}>حذف</DangerButton>
+                    <AppButton type="button" variant="ghost" size="sm" onClick={() => setStartCart((current) => current.filter((_, lineIndex) => lineIndex !== index))} className="text-app-danger hover:bg-app-danger-soft">حذف</AppButton>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-[100px_1fr]">
-                    <Field label="الكمية" type="number" min="1" value={line.quantity} onChange={(quantity) => updateStartCartLine(index, { quantity: Number(quantity) })} />
-                    <Field label="ملاحظة" value={line.notes} onChange={(notes) => updateStartCartLine(index, { notes })} />
+                    <AppFieldShell label="الكمية">
+                      <AppInput type="number" min="1" value={line.quantity} onChange={(event) => updateStartCartLine(index, { quantity: Number(event.target.value) })} />
+                    </AppFieldShell>
+                    <AppFieldShell label="ملاحظة">
+                      <AppInput value={line.notes} onChange={(event) => updateStartCartLine(index, { notes: event.target.value })} />
+                    </AppFieldShell>
                   </div>
                 </div>
-              )) : <Empty title="السلة فارغة" text="أضف صنفًا أو أكثر قبل إنشاء الطلب." />}
+              )) : <AppEmptyState title="السلة فارغة" description="أضف صنفًا أو أكثر قبل إنشاء الطلب." />}
             </div>
-            <div className="border-t border-slate-100 p-3 text-sm font-black">
+            <div className="border-t border-app-border p-3 text-sm font-semibold text-app-ink">
               الإجمالي قبل الرسوم: {money(startCartSubTotal, state.restaurant?.currency)}
             </div>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            <Field label="خصم" type="number" min="0" value={startOrderForm.discount} onChange={(discount) => setStartOrderForm({ ...startOrderForm, discount: Number(discount) })} />
-            <Field label="ضريبة" type="number" min="0" value={startOrderForm.tax} onChange={(tax) => setStartOrderForm({ ...startOrderForm, tax: Number(tax) })} />
-            <Field label="خدمة" type="number" min="0" value={startOrderForm.serviceCharge} onChange={(serviceCharge) => setStartOrderForm({ ...startOrderForm, serviceCharge: Number(serviceCharge) })} />
+            <AppFieldShell label="خصم">
+              <AppInput type="number" min="0" value={startOrderForm.discount} onChange={(event) => setStartOrderForm({ ...startOrderForm, discount: Number(event.target.value) })} />
+            </AppFieldShell>
+            <AppFieldShell label="ضريبة">
+              <AppInput type="number" min="0" value={startOrderForm.tax} onChange={(event) => setStartOrderForm({ ...startOrderForm, tax: Number(event.target.value) })} />
+            </AppFieldShell>
+            <AppFieldShell label="خدمة">
+              <AppInput type="number" min="0" value={startOrderForm.serviceCharge} onChange={(event) => setStartOrderForm({ ...startOrderForm, serviceCharge: Number(event.target.value) })} />
+            </AppFieldShell>
           </div>
-          <SelectField label="طريقة الدفع" value={startOrderForm.paymentMethod} options={paymentMethods.map(option)} onChange={(paymentMethod) => setStartOrderForm({ ...startOrderForm, paymentMethod })} />
-          <TextArea label="ملاحظات الطلب" value={startOrderForm.notes} onChange={(notes) => setStartOrderForm({ ...startOrderForm, notes })} />
-          <PrimaryButton disabled={!startCart.length}>بدء الطلب</PrimaryButton>
+          <AppFieldShell label="طريقة الدفع">
+            <AppSelect value={startOrderForm.paymentMethod} onChange={(event) => setStartOrderForm({ ...startOrderForm, paymentMethod: event.target.value })}>
+              {paymentMethods.map((method) => <option key={method} value={method}>{option(method).label}</option>)}
+            </AppSelect>
+          </AppFieldShell>
+          <AppFieldShell label="ملاحظات الطلب">
+            <AppTextarea value={startOrderForm.notes} onChange={(event) => setStartOrderForm({ ...startOrderForm, notes: event.target.value })} />
+          </AppFieldShell>
+          <AppButton type="submit" disabled={!startCart.length}>بدء الطلب</AppButton>
         </form>
+      </PopupForm>
+
+      <PopupForm
+        open={Boolean(pendingMoveTable)}
+        onClose={closeMoveConfirmation}
+        title="نقل الطلب إلى طاولة أخرى؟"
+        description={order && pendingMoveTable ? `نقل ${order.name || order.id} إلى الطاولة ${pendingMoveTable.name}.` : undefined}
+        maxWidth="sm"
+      >
+        <div className="grid gap-4">
+          <p className="text-app-body leading-7 text-app-muted">سيبقى الطلب بكل تفاصيله وبنوده وإجمالياته كما هو.</p>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <AppButton type="button" variant="secondary" onClick={closeMoveConfirmation} disabled={orderActionBusy} className="w-full sm:w-auto">
+              إلغاء
+            </AppButton>
+            <AppButton type="button" data-autofocus onClick={() => void confirmMoveOrder()} loading={orderActionBusy} disabled={orderActionBusy} className="w-full sm:w-auto">
+              نقل الطلب
+            </AppButton>
+          </div>
+        </div>
+      </PopupForm>
+
+      <PopupForm
+        open={Boolean(pendingCompleteOrder)}
+        onClose={() => setPendingCompleteOrder(null)}
+        title="إكمال الطلب؟"
+        description={pendingCompleteOrder ? `سيتم إنهاء الطلب ${pendingCompleteOrder.order.name || pendingCompleteOrder.order.id} بقيمة ${money(pendingCompleteOrder.order.total, state.restaurant?.currency)}.` : undefined}
+        maxWidth="sm"
+      >
+        <div className="grid gap-4">
+          <p className="text-app-body leading-7 text-app-muted">سيتم تسجيل الدفع وإغلاق الطلب بنفس بيانات الدفع الحالية.</p>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <AppButton type="button" variant="secondary" onClick={() => setPendingCompleteOrder(null)} disabled={orderActionBusy} className="w-full sm:w-auto">
+              إلغاء
+            </AppButton>
+            <AppButton type="button" data-autofocus onClick={() => void confirmCompleteCurrentOrder()} loading={orderActionBusy} disabled={orderActionBusy} className="w-full sm:w-auto">
+              إكمال الطلب
+            </AppButton>
+          </div>
+        </div>
       </PopupForm>
     </OpsShell>
   );
@@ -808,10 +952,20 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
 function TableFact({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-xs font-black text-slate-500">{label}</p>
-      <p className="mt-1 break-words text-sm font-black text-slate-950">{value}</p>
+      <p className="text-app-helper font-semibold text-app-muted">{label}</p>
+      <p className="mt-1 break-words text-sm font-semibold text-app-ink">{value}</p>
     </div>
   );
+}
+
+function TableStatusBadge({ status }: { status: OpsTable["status"] }) {
+  const variant = status === "AVAILABLE" ? "success" : status === "DISABLED" ? "danger" : "warning";
+  return <AppBadge variant={variant}>{status}</AppBadge>;
+}
+
+function OrderStatusBadge({ status }: { status: OrderStatus }) {
+  const variant = status === "COMPLETED" || status === "SERVED" ? "success" : status === "CANCELLED" ? "danger" : status === "PENDING" || status === "DRAFT" ? "warning" : "primary";
+  return <AppBadge variant={variant}>{orderStatusLabels[status]}</AppBadge>;
 }
 
 function emptyStartOrderForm(tableId: string, tableName = ""): StartOrderForm {

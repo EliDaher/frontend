@@ -1,7 +1,8 @@
 "use client";
 
 import { AlertTriangle, CheckCircle2, CloudOff, RefreshCw, RotateCw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
+import { cn } from "@/components/shared";
 import { useSyncStatus } from "@/hooks/useSyncStatus";
 import { retryFailedOperations } from "@/offline/outbox";
 import { startSync } from "@/offline/sync-engine";
@@ -11,6 +12,7 @@ export function SyncStatusIndicator({ tenantId, token }: { tenantId?: string; to
   const [storedToken, setStoredToken] = useState(token ?? "");
   const [open, setOpen] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const popoverId = useId();
   useEffect(() => {
     setStoredToken(token ?? window.localStorage.getItem("menu-owner-token") ?? "");
   }, [token]);
@@ -20,6 +22,19 @@ export function SyncStatusIndicator({ tenantId, token }: { tenantId?: string; to
   const failed = status.failed + status.conflict;
   const waiting = status.totalWaiting;
   const syncing = status.syncing > 0 || status.syncInProgress;
+
+  useEffect(() => {
+    if (!open) return;
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open]);
 
   async function retryNow() {
     if (!tenantId || !storedToken || retrying) return;
@@ -46,25 +61,32 @@ export function SyncStatusIndicator({ tenantId, token }: { tenantId?: string; to
         <button
           type="button"
           onClick={() => setOpen((current) => !current)}
-          className="inline-flex h-10 items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 text-xs font-black text-red-700"
+          className="inline-flex h-10 items-center gap-2 rounded-app-md border border-app-danger-soft bg-app-danger-soft px-3 text-xs font-semibold text-app-danger transition-colors hover:border-app-danger focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft"
           aria-expanded={open}
+          aria-haspopup="dialog"
+          aria-controls={open ? popoverId : undefined}
           aria-label="تفاصيل فشل المزامنة"
         >
           <AlertTriangle className="h-4 w-4" />
           {failed} فشل
         </button>
         {open ? (
-          <div className="absolute left-0 top-12 z-50 w-[min(360px,calc(100vw-2rem))] rounded-md border border-red-100 bg-white p-3 text-right shadow-xl">
-            <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2">
+          <div
+            id={popoverId}
+            role="dialog"
+            aria-label="تفاصيل فشل المزامنة"
+            className="absolute end-0 top-12 z-50 w-[min(360px,calc(100vw-2rem))] rounded-app-lg border border-app-border bg-app-surface p-3 text-start text-app-ink shadow-app-dialog"
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-app-border pb-2">
               <div>
-                <p className="text-sm font-black text-slate-950">عمليات لم تُحفظ</p>
-                <p className="mt-0.5 text-xs font-bold text-slate-500">راجع السبب ثم أعد المحاولة عند الإمكان.</p>
+                <p className="text-sm font-semibold text-app-ink">عمليات لم تُحفظ</p>
+                <p className="mt-0.5 text-app-helper text-app-muted">راجع السبب ثم أعد المحاولة عند الإمكان.</p>
               </div>
               <button
                 type="button"
                 onClick={retryNow}
                 disabled={retrying || !storedToken}
-                className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-xs font-black text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-10 items-center gap-2 rounded-app-md border border-app-border bg-app-surface px-2 text-xs font-semibold text-app-ink transition-colors hover:bg-app-surface-muted focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft disabled:cursor-not-allowed disabled:bg-app-surface-muted disabled:text-app-muted sm:h-9"
               >
                 <RotateCw className={`h-3.5 w-3.5 ${retrying ? "animate-spin" : ""}`} />
                 إعادة
@@ -72,24 +94,31 @@ export function SyncStatusIndicator({ tenantId, token }: { tenantId?: string; to
             </div>
             <div className="mt-2 max-h-80 space-y-2 overflow-y-auto">
               {status.issues.length ? status.issues.map((issue) => (
-                <div key={issue.operationId} className="rounded-md border border-slate-100 bg-slate-50 p-2">
+                <div key={issue.operationId} className="rounded-app-md border border-app-border bg-app-surface-muted p-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-black text-slate-950">{actionLabel(issue.entityType, issue.action)} · {issue.entityLabel}</p>
-                      <p className="mt-1 text-xs font-bold text-red-700">{localizedError(issue.code, issue.message)}</p>
+                      <p className="truncate text-sm font-semibold text-app-ink">{actionLabel(issue.entityType, issue.action)} · {issue.entityLabel}</p>
+                      <p className="mt-1 text-app-helper font-semibold text-app-danger">{localizedError(issue.code, issue.message)}</p>
                     </div>
-                    <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-black ${issue.status === "conflict" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-app-sm border px-2 py-1 text-[11px] font-semibold leading-none",
+                        issue.status === "conflict"
+                          ? "border-app-danger-soft bg-app-danger-soft text-app-danger"
+                          : "border-app-warning-soft bg-app-warning-soft text-app-warning"
+                      )}
+                    >
                       {statusLabel(issue.status)}
                     </span>
                   </div>
-                  <div className="mt-2 grid gap-1 text-[11px] font-bold text-slate-500">
+                  <div className="mt-2 grid gap-1 text-[11px] font-medium text-app-muted">
                     <span>آخر محاولة: {formatDateTime(issue.lastAttemptAt ?? issue.createdAt)}</span>
                     <span>عدد المحاولات: {issue.retryCount}</span>
                     {issue.blockedBy.length ? <span>السبب: عملية سابقة لم تنجح بعد.</span> : null}
                   </div>
                 </div>
               )) : (
-                <p className="rounded-md bg-slate-50 p-3 text-xs font-bold text-slate-600">لا توجد تفاصيل محفوظة لهذه العمليات.</p>
+                <p className="rounded-app-md bg-app-surface-muted p-3 text-app-helper font-medium text-app-muted">لا توجد تفاصيل محفوظة لهذه العمليات.</p>
               )}
             </div>
           </div>
@@ -100,7 +129,7 @@ export function SyncStatusIndicator({ tenantId, token }: { tenantId?: string; to
 
   if (offline) {
     return (
-      <span className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-slate-100 px-3 text-xs font-black text-slate-700">
+      <span className="inline-flex h-10 items-center gap-2 rounded-app-md border border-app-border bg-app-surface-muted px-3 text-xs font-semibold text-app-muted">
         <CloudOff className="h-4 w-4" />
         دون اتصال {waiting > 0 ? `· ${waiting}` : ""}
       </span>
@@ -109,7 +138,7 @@ export function SyncStatusIndicator({ tenantId, token }: { tenantId?: string; to
 
   if (syncing) {
     return (
-      <span className="inline-flex h-10 items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 text-xs font-black text-amber-700">
+      <span className="inline-flex h-10 items-center gap-2 rounded-app-md border border-app-warning-soft bg-app-warning-soft px-3 text-xs font-semibold text-app-warning">
         <RefreshCw className="h-4 w-4 animate-spin" />
         مزامنة
       </span>
@@ -118,7 +147,7 @@ export function SyncStatusIndicator({ tenantId, token }: { tenantId?: string; to
 
   if (waiting > 0) {
     return (
-      <span className="inline-flex h-10 items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 text-xs font-black text-amber-700">
+      <span className="inline-flex h-10 items-center gap-2 rounded-app-md border border-app-warning-soft bg-app-warning-soft px-3 text-xs font-semibold text-app-warning">
         <RefreshCw className="h-4 w-4" />
         {waiting} بانتظار المزامنة
       </span>
@@ -126,7 +155,7 @@ export function SyncStatusIndicator({ tenantId, token }: { tenantId?: string; to
   }
 
   return (
-    <span className="hidden h-10 items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 text-xs font-black text-emerald-700 sm:inline-flex">
+    <span className="hidden h-10 items-center gap-2 rounded-app-md border border-app-success-soft bg-app-success-soft px-3 text-xs font-semibold text-app-success sm:inline-flex">
       <CheckCircle2 className="h-4 w-4" />
       متزامن
     </span>

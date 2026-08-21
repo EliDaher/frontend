@@ -1,78 +1,44 @@
 "use client";
 
-import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { PopupForm } from "@/components/shared";
+import type { FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  AppBadge,
+  AppButton,
+  AppEmptyState,
+  AppFieldShell,
+  AppInput,
+  AppPageHeader,
+  AppSelect,
+  AppSurface,
+  AppToolbar,
+  PopupForm,
+  cn
+} from "@/components/shared";
 import { adminRequest } from "@/lib/api";
 import { formatInteger } from "@/lib/format";
-import type { Category, MenuItem } from "@/types/menu";
-import type {
-  Account,
-  CashMovement,
-  CashRegister,
-  Expense,
-  InventoryItem,
-  InventoryTransaction,
-  Invoice,
-  JournalEntry,
-  OperationalPayment,
-  OrderStatus,
-  OpsOrder,
-  OpsTable,
-  PaymentMethod,
-  RecipeDraftLine,
-  RecipeIngredient,
-  Supplier
-} from "@/types/ops";
-import {
-  DangerButton,
-  Empty,
-  Field,
-  money,
-  OrderStatusActions,
-  orderStatusLabels,
-  OpsShell,
-  Panel,
-  paymentAmountForMethod,
-  PrimaryButton,
-  SecondaryButton,
-  SelectField,
-  StatusBadge,
-  TextArea,
-  useOpsPage
-} from "./OpsShared";
+import type { Account, CashMovement, CashRegister, Expense, JournalEntry, OperationalPayment } from "@/types/ops";
+import { money, OpsShell, useOpsPage } from "./OpsShared";
 import {
   accountTypes,
-  buildCurrentMonthRange,
   buildCashSeries,
+  buildCurrentMonthRange,
   buildPaymentBreakdown,
   dateRangeLabel,
-  Filters,
   formatFinancialDate,
-  invoiceStatuses,
-  invoiceTypes,
   isWithinDateRange,
   journalStatusLabel,
-  localDateKey,
   nameById,
   numberValue,
   option,
-  orderStatuses,
-  orderTypes,
   paymentMethodLabel,
-  paymentMethods,
-  recipeDraftForMenuItem,
-  RowActions,
   recordTime,
   run,
-  SimpleCrudLayout,
   sortByCreatedAtDesc,
-  sumAmounts,
-  tableStatuses,
-  AccountingMetric,
-  CashMovementChart,
-  PaymentMethodChart
+  sumAmounts
 } from "./OpsPageShared";
+
+type AccountingTab = "overview" | "records" | "accounts" | "journal" | "cash";
 
 type FinancialRecordRow = {
   id: string;
@@ -86,9 +52,35 @@ type FinancialRecordRow = {
   source: string;
 };
 
+type AccountForm = {
+  code: string;
+  name: string;
+  type: Account["type"];
+  isActive: boolean;
+};
+
+type EntryForm = {
+  debitAccountId: string;
+  creditAccountId: string;
+  amount: number;
+  memo: string;
+};
+
+type CashForm = {
+  name: string;
+  openingBalance: number;
+};
+
+type MovementForm = {
+  cashRegisterId: string;
+  type: CashMovement["type"];
+  amount: number;
+  note: string;
+};
+
 export function AccountingOpsPage() {
   const state = useOpsPage("accounting");
-  const [tab, setTab] = useState<"overview" | "records" | "accounts" | "journal" | "cash">("overview");
+  const [tab, setTab] = useState<AccountingTab>("overview");
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [registers, setRegisters] = useState<CashRegister[]>([]);
@@ -96,10 +88,10 @@ export function AccountingOpsPage() {
   const [payments, setPayments] = useState<OperationalPayment[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [dateRange, setDateRange] = useState(buildCurrentMonthRange);
-  const [accountForm, setAccountForm] = useState({ code: "", name: "", type: "ASSET", isActive: true });
-  const [entryForm, setEntryForm] = useState({ debitAccountId: "", creditAccountId: "", amount: 0, memo: "" });
-  const [cashForm, setCashForm] = useState({ name: "", openingBalance: 0 });
-  const [movementForm, setMovementForm] = useState({ cashRegisterId: "", type: "IN", amount: 0, note: "" });
+  const [accountForm, setAccountForm] = useState<AccountForm>({ code: "", name: "", type: "ASSET", isActive: true });
+  const [entryForm, setEntryForm] = useState<EntryForm>({ debitAccountId: "", creditAccountId: "", amount: 0, memo: "" });
+  const [cashForm, setCashForm] = useState<CashForm>({ name: "", openingBalance: 0 });
+  const [movementForm, setMovementForm] = useState<MovementForm>({ cashRegisterId: "", type: "IN", amount: 0, note: "" });
   const [accountFormOpen, setAccountFormOpen] = useState(false);
   const [cashRegisterFormOpen, setCashRegisterFormOpen] = useState(false);
 
@@ -253,196 +245,529 @@ export function AccountingOpsPage() {
 
   return (
     <OpsShell title="المحاسبة" eyebrow="الحسابات والقيود والصندوق" module="accounting" state={state} onRefresh={() => void Promise.all([state.loadRestaurant(), load()])}>
-      <Panel
-        title={`الفترة المختارة · ${dateRangeLabel(dateRange)}`}
-        action={<SecondaryButton onClick={() => setDateRange(buildCurrentMonthRange())}>الشهر الحالي</SecondaryButton>}
-      >
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="من" type="date" value={dateRange.from} onChange={(from) => setDateRange((current) => ({ ...current, from }))} />
-          <Field label="إلى" type="date" value={dateRange.to} onChange={(to) => setDateRange((current) => ({ ...current, to }))} />
-        </div>
-      </Panel>
-
-      <div className="my-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <AccountingMetric title="المقبوضات" value={money(receiptsTotal, currency)} tone="green" />
-        <AccountingMetric title="المصروفات" value={money(expensesTotal, currency)} tone="red" />
-        <AccountingMetric title="صافي المقبوضات" value={money(netReceipts, currency)} tone={netReceipts >= 0 ? "green" : "red"} />
-        <AccountingMetric title="دخول الصندوق" value={money(periodCashIn, currency)} tone="green" />
-        <AccountingMetric title="خروج الصندوق" value={money(periodCashOut, currency)} tone="red" />
-        <AccountingMetric title="السجلات" value={formatInteger(totalPeriodRecords)} />
-      </div>
-
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-2">
-        <AccountingMetric title="إجمالي الصناديق" value={money(totalCashBalance, currency)} />
-        <AccountingMetric title="إجمالي القيود" value={formatInteger(entries.length)} />
-      </div>
-
-      <div className="mb-4 flex gap-2 overflow-x-auto">
-        {(["overview", "records", "accounts", "journal", "cash"] as const).map((item) => (
-          <button key={item} onClick={() => setTab(item)} className={`rounded-md px-4 py-2 text-sm font-black ${tab === item ? "bg-amber-500 text-white" : "bg-white text-slate-600"}`}>
-            {item === "overview" ? "نظرة عامة" : item === "records" ? "كل السجلات" : item === "accounts" ? "الحسابات" : item === "journal" ? "القيود" : "الصندوق"}
-          </button>
-        ))}
-      </div>
-
-      {tab === "overview" ? (
-        <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-          <Panel title="حركة النقد في الفترة">
-            <CashMovementChart data={cashSeries} currency={currency} />
-          </Panel>
-          <Panel title="وسائل الدفع في الفترة">
-            <PaymentMethodChart data={paymentBreakdown} currency={currency} />
-          </Panel>
-          <Panel title="آخر الحركات النقدية في الفترة">
-            <div className="grid gap-2">
-              {recentMovements.length ? recentMovements.map((movement) => (
-                <div key={movement.id} className="flex items-center justify-between gap-3 rounded-md bg-slate-50 p-2 text-sm font-bold">
-                  <div>
-                    <p className="font-black">{movement.type === "IN" ? "دخول نقدي" : "خروج نقدي"}</p>
-                    <p className="text-xs text-slate-500">{movement.note || movement.referenceType}</p>
-                  </div>
-                  <span className={movement.type === "IN" ? "text-emerald-700" : "text-red-700"}>{money(movement.amount, currency)}</span>
-                </div>
-              )) : <Empty title="لا توجد حركات" text="ستظهر الحركات النقدية الأخيرة هنا." />}
-            </div>
-          </Panel>
-          <Panel title="آخر القيود في الفترة">
-            <div className="grid gap-2">
-              {recentEntries.length ? recentEntries.map((entry) => (
-                <div key={entry.id} className="rounded-md bg-slate-50 p-2 text-sm font-bold">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-black">{entry.memo || entry.referenceType}</p>
-                    <StatusBadge label={journalStatusLabel(entry.status)} tone={entry.status === "POSTED" ? "green" : entry.status === "REVERSED" ? "red" : "amber"} />
-                  </div>
-                  <p className="mt-1 text-xs text-slate-500">{formatInteger(entry.lines.length)} سطور</p>
-                </div>
-              )) : <Empty title="لا توجد قيود" text="ستظهر القيود المحاسبية الأخيرة هنا." />}
-            </div>
-          </Panel>
-        </div>
-      ) : null}
-
-      {tab === "records" ? (
-        <Panel title="كل السجلات المالية في الفترة">
-          {financialRecords.length ? (
-            <div className="overflow-x-auto rounded-lg border border-slate-200">
-              <table className="min-w-[900px] w-full text-right text-sm">
-                <thead className="bg-slate-50 text-xs font-black text-slate-500">
-                  <tr>
-                    <th className="px-3 py-2">التاريخ</th>
-                    <th className="px-3 py-2">النوع</th>
-                    <th className="px-3 py-2">البيان</th>
-                    <th className="px-3 py-2">الطريقة / الحالة</th>
-                    <th className="px-3 py-2">داخل</th>
-                    <th className="px-3 py-2">خارج</th>
-                    <th className="px-3 py-2">المرجع</th>
-                    <th className="px-3 py-2">ملاحظة</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-bold">
-                  {financialRecords.map((record) => (
-                    <tr key={record.id}>
-                      <td className="whitespace-nowrap px-3 py-2">{formatFinancialDate(record.date)}</td>
-                      <td className="whitespace-nowrap px-3 py-2">{record.type}</td>
-                      <td className="px-3 py-2">{record.title}</td>
-                      <td className="whitespace-nowrap px-3 py-2 text-slate-500">{record.method}</td>
-                      <td className="whitespace-nowrap px-3 py-2 text-emerald-700">{record.amountIn ? money(record.amountIn, currency) : "-"}</td>
-                      <td className="whitespace-nowrap px-3 py-2 text-red-700">{record.amountOut ? money(record.amountOut, currency) : "-"}</td>
-                      <td className="px-3 py-2 text-slate-500">{record.source || "-"}</td>
-                      <td className="px-3 py-2 text-slate-500">{record.note || "-"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : <Empty title="لا توجد سجلات" text="غيّر الفترة أو سجّل مدفوعات ومصروفات وحركات صندوق." />}
-        </Panel>
-      ) : null}
-
-      {tab === "accounts" ? (
-        <Panel
-          title="دليل الحسابات"
-          action={(
-            <button type="button" onClick={() => setAccountFormOpen(true)} className="inline-flex h-10 items-center justify-center rounded-md bg-slate-950 px-3 text-sm font-black text-white">
-              إضافة حساب
-            </button>
+      <div className="grid gap-4">
+        <AppPageHeader
+          title="المحاسبة"
+          description="متابعة الحسابات والحركات والأرصدة."
+          secondaryActions={(
+            <>
+              <AppBadge variant="neutral">{dateRangeLabel(dateRange)}</AppBadge>
+              <AppBadge variant="primary">{formatInteger(totalPeriodRecords)} سجل</AppBadge>
+              <AppBadge variant="neutral">{formatInteger(entries.length)} قيد</AppBadge>
+            </>
           )}
-        >
-          <div className="grid gap-3">
-            {accounts.length ? accounts.map((account) => <p key={account.id} className="rounded-lg border border-slate-200 p-3 font-bold">{account.code} · {account.name} · {account.type}</p>) : <Empty title="لا توجد حسابات" text="أضف أول حساب." />}
-          </div>
-        </Panel>
-      ) : null}
-      {tab === "journal" ? (
-        <SimpleCrudLayout
-          formTitle="قيد يدوي متوازن"
-          listTitle="القيود"
-          form={(
-            <form onSubmit={addEntry} className="grid gap-3">
-              <SelectField label="مدين" value={entryForm.debitAccountId} options={accounts.map((account) => ({ value: account.id, label: account.name }))} onChange={(debitAccountId) => setEntryForm({ ...entryForm, debitAccountId })} />
-              <SelectField label="دائن" value={entryForm.creditAccountId} options={accounts.map((account) => ({ value: account.id, label: account.name }))} onChange={(creditAccountId) => setEntryForm({ ...entryForm, creditAccountId })} />
-              <Field label="المبلغ" type="number" min="0" value={entryForm.amount} onChange={(amount) => setEntryForm({ ...entryForm, amount: Number(amount) })} />
-              <Field label="البيان" value={entryForm.memo} onChange={(memo) => setEntryForm({ ...entryForm, memo })} />
-              <p className={`rounded-md p-2 text-sm font-black ${totalDebit === totalCredit ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>مدين {totalDebit} / دائن {totalCredit}</p>
-              <PrimaryButton disabled={!entryForm.amount}>إضافة قيد</PrimaryButton>
-            </form>
-          )}
-        >
-          <div className="grid gap-3">
-            {rangedEntries.length ? rangedEntries.map((entry) => <p key={entry.id} className="rounded-lg border border-slate-200 p-3 font-bold">{formatFinancialDate(entry.postedAt || entry.createdAt)} · {entry.memo || entry.referenceType} · {journalStatusLabel(entry.status)} · {entry.lines.length} سطور</p>) : <Empty title="لا توجد قيود" text="أضف قيدًا متوازنًا أو غيّر الفترة." />}
-          </div>
-        </SimpleCrudLayout>
-      ) : null}
+        />
 
-      {tab === "cash" ? (
-        <div className="grid gap-4 xl:grid-cols-2">
-          <Panel title="حركة نقدية">
-            <form onSubmit={addMovement} className="grid gap-3">
-              <SelectField label="الصندوق" value={movementForm.cashRegisterId} options={registers.map((register) => ({ value: register.id, label: register.name }))} onChange={(cashRegisterId) => setMovementForm({ ...movementForm, cashRegisterId })} />
-              <SelectField label="النوع" value={movementForm.type} options={["IN", "OUT"].map(option)} onChange={(type) => setMovementForm({ ...movementForm, type })} />
-              <Field label="المبلغ" type="number" min="0" value={movementForm.amount} onChange={(amount) => setMovementForm({ ...movementForm, amount: Number(amount) })} />
-              <Field label="ملاحظة" value={movementForm.note} onChange={(note) => setMovementForm({ ...movementForm, note })} />
-              <PrimaryButton disabled={!movementForm.cashRegisterId}>تسجيل</PrimaryButton>
-            </form>
-          </Panel>
-          <Panel
-            title="الصناديق"
-            action={(
-              <button type="button" onClick={() => setCashRegisterFormOpen(true)} className="inline-flex h-10 items-center justify-center rounded-md bg-slate-950 px-3 text-sm font-black text-white">
-                فتح صندوق
-              </button>
+        <AppSurface>
+          <AppToolbar
+            search={(
+              <div className="grid gap-3 sm:grid-cols-2">
+                <AppFieldShell label="من">
+                  <AppInput type="date" value={dateRange.from} onChange={(event) => setDateRange((current) => ({ ...current, from: event.target.value }))} />
+                </AppFieldShell>
+                <AppFieldShell label="إلى">
+                  <AppInput type="date" value={dateRange.to} onChange={(event) => setDateRange((current) => ({ ...current, to: event.target.value }))} />
+                </AppFieldShell>
+              </div>
             )}
-          >
-            <div className="grid gap-2">{registers.map((register) => <p key={register.id} className="rounded-md bg-slate-50 p-2 text-sm font-bold">{register.name} ?? {money(register.currentBalance, state.restaurant?.currency)}</p>)}</div>
-          </Panel>
-          <Panel title="الحركات في الفترة">
-            <div className="grid gap-2">{rangedMovements.length ? rangedMovements.map((movement) => <p key={movement.id} className="rounded-md bg-slate-50 p-2 text-sm font-bold">{formatFinancialDate(movement.createdAt)} · {movement.type === "IN" ? "دخول" : "خروج"} · {money(movement.amount, state.restaurant?.currency)} · {movement.note}</p>) : <Empty title="لا توجد حركات" text="غيّر الفترة أو سجّل حركة نقدية." />}</div>
-          </Panel>
+            actions={<AppButton type="button" variant="secondary" onClick={() => setDateRange(buildCurrentMonthRange())}>الشهر الحالي</AppButton>}
+          />
+        </AppSurface>
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-6">
+          <AccountingSummary title="المقبوضات" value={money(receiptsTotal, currency)} tone="success" />
+          <AccountingSummary title="المصروفات" value={money(expensesTotal, currency)} tone="danger" />
+          <AccountingSummary title="صافي المقبوضات" value={money(netReceipts, currency)} tone={netReceipts >= 0 ? "success" : "danger"} />
+          <AccountingSummary title="دخول الصندوق" value={money(periodCashIn, currency)} tone="success" />
+          <AccountingSummary title="خروج الصندوق" value={money(periodCashOut, currency)} tone="danger" />
+          <AccountingSummary title="السجلات" value={formatInteger(totalPeriodRecords)} />
         </div>
-      ) : null}
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <AccountingSummary title="إجمالي الصناديق" value={money(totalCashBalance, currency)} />
+          <AccountingSummary title="إجمالي القيود" value={formatInteger(entries.length)} />
+        </div>
+
+        <nav className="flex gap-2 overflow-x-auto rounded-app-lg border border-app-border bg-app-surface p-2" aria-label="أقسام المحاسبة">
+          {accountingTabs.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              onClick={() => setTab(item.value)}
+              className={cn(
+                "h-9 shrink-0 rounded-app-md border px-3 text-app-label font-semibold transition-colors",
+                tab === item.value
+                  ? "border-app-primary bg-app-primary text-app-primary-foreground"
+                  : "border-transparent bg-transparent text-app-muted hover:bg-app-surface-muted hover:text-app-ink"
+              )}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+
+        {tab === "overview" ? (
+          <OverviewTab
+            cashSeries={cashSeries}
+            paymentBreakdown={paymentBreakdown}
+            recentMovements={recentMovements}
+            recentEntries={recentEntries}
+            currency={currency}
+          />
+        ) : null}
+
+        {tab === "records" ? <RecordsTab records={financialRecords} currency={currency} /> : null}
+
+        {tab === "accounts" ? (
+          <AccountsTab accounts={accounts} onAddAccount={() => setAccountFormOpen(true)} />
+        ) : null}
+
+        {tab === "journal" ? (
+          <JournalTab
+            accounts={accounts}
+            rangedEntries={rangedEntries}
+            entryForm={entryForm}
+            setEntryForm={setEntryForm}
+            totalDebit={totalDebit}
+            totalCredit={totalCredit}
+            onSubmit={addEntry}
+          />
+        ) : null}
+
+        {tab === "cash" ? (
+          <CashTab
+            registers={registers}
+            rangedMovements={rangedMovements}
+            movementForm={movementForm}
+            setMovementForm={setMovementForm}
+            currency={currency}
+            onSubmit={addMovement}
+            onAddRegister={() => setCashRegisterFormOpen(true)}
+          />
+        ) : null}
+      </div>
 
       <PopupForm open={accountFormOpen} onClose={() => setAccountFormOpen(false)} title="إضافة حساب" maxWidth="md">
         <form onSubmit={addAccount} className="grid gap-3">
-          <Field label="الكود" value={accountForm.code} onChange={(code) => setAccountForm({ ...accountForm, code })} />
-          <Field label="الاسم" value={accountForm.name} onChange={(name) => setAccountForm({ ...accountForm, name })} />
-          <SelectField label="النوع" value={accountForm.type} options={accountTypes.map(option)} onChange={(type) => setAccountForm({ ...accountForm, type })} />
-          <div className="flex gap-2">
-            <PrimaryButton>إضافة</PrimaryButton>
-            <SecondaryButton onClick={() => setAccountFormOpen(false)}>إلغاء</SecondaryButton>
+          <AppFieldShell label="الكود">
+            <AppInput value={accountForm.code} onChange={(event) => setAccountForm({ ...accountForm, code: event.target.value })} />
+          </AppFieldShell>
+          <AppFieldShell label="الاسم">
+            <AppInput value={accountForm.name} onChange={(event) => setAccountForm({ ...accountForm, name: event.target.value })} />
+          </AppFieldShell>
+          <AppFieldShell label="النوع">
+            <AppSelect value={accountForm.type} onChange={(event) => setAccountForm({ ...accountForm, type: event.target.value as Account["type"] })}>
+              {accountTypes.map((type) => <option key={type} value={type}>{option(type).label}</option>)}
+            </AppSelect>
+          </AppFieldShell>
+          <div className="flex flex-wrap gap-2">
+            <AppButton type="submit">إضافة</AppButton>
+            <AppButton type="button" variant="secondary" onClick={() => setAccountFormOpen(false)}>إلغاء</AppButton>
           </div>
         </form>
       </PopupForm>
 
       <PopupForm open={cashRegisterFormOpen} onClose={() => setCashRegisterFormOpen(false)} title="فتح صندوق" maxWidth="md">
         <form onSubmit={addCashRegister} className="grid gap-3">
-          <Field label="الاسم" value={cashForm.name} onChange={(name) => setCashForm({ ...cashForm, name })} />
-          <Field label="رصيد افتتاحي" type="number" min="0" value={cashForm.openingBalance} onChange={(openingBalance) => setCashForm({ ...cashForm, openingBalance: Number(openingBalance) })} />
-          <div className="flex gap-2">
-            <PrimaryButton>فتح</PrimaryButton>
-            <SecondaryButton onClick={() => setCashRegisterFormOpen(false)}>إلغاء</SecondaryButton>
+          <AppFieldShell label="الاسم">
+            <AppInput value={cashForm.name} onChange={(event) => setCashForm({ ...cashForm, name: event.target.value })} />
+          </AppFieldShell>
+          <AppFieldShell label="رصيد افتتاحي">
+            <AppInput type="number" min="0" value={cashForm.openingBalance} onChange={(event) => setCashForm({ ...cashForm, openingBalance: Number(event.target.value) })} />
+          </AppFieldShell>
+          <div className="flex flex-wrap gap-2">
+            <AppButton type="submit">فتح</AppButton>
+            <AppButton type="button" variant="secondary" onClick={() => setCashRegisterFormOpen(false)}>إلغاء</AppButton>
           </div>
         </form>
       </PopupForm>
     </OpsShell>
   );
 }
+
+function OverviewTab({
+  cashSeries,
+  paymentBreakdown,
+  recentMovements,
+  recentEntries,
+  currency
+}: {
+  cashSeries: ReturnType<typeof buildCashSeries>;
+  paymentBreakdown: ReturnType<typeof buildPaymentBreakdown>;
+  recentMovements: CashMovement[];
+  recentEntries: JournalEntry[];
+  currency?: string;
+}) {
+  return (
+    <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+      <AppSurface title="حركة النقد في الفترة">
+        <CashMovementBars data={cashSeries} currency={currency} />
+      </AppSurface>
+      <AppSurface title="وسائل الدفع في الفترة">
+        <PaymentMethodBars data={paymentBreakdown} currency={currency} />
+      </AppSurface>
+      <AppSurface title="آخر الحركات النقدية في الفترة">
+        <div className="grid gap-2">
+          {recentMovements.length ? recentMovements.map((movement) => (
+            <div key={movement.id} className="flex items-center justify-between gap-3 rounded-app-md border border-app-border bg-app-surface-muted p-3 text-app-body">
+              <div className="min-w-0">
+                <p className="font-semibold text-app-ink">{movement.type === "IN" ? "دخول نقدي" : "خروج نقدي"}</p>
+                <p className="mt-1 truncate text-app-helper text-app-muted">{movement.note || movement.referenceType}</p>
+              </div>
+              <span className={cn("shrink-0 font-semibold", movement.type === "IN" ? "text-app-success" : "text-app-danger")}>{money(movement.amount, currency)}</span>
+            </div>
+          )) : <AppEmptyState title="لا توجد حركات" description="ستظهر الحركات النقدية الأخيرة هنا." />}
+        </div>
+      </AppSurface>
+      <AppSurface title="آخر القيود في الفترة">
+        <div className="grid gap-2">
+          {recentEntries.length ? recentEntries.map((entry) => (
+            <div key={entry.id} className="rounded-app-md border border-app-border bg-app-surface-muted p-3 text-app-body">
+              <div className="flex items-center justify-between gap-3">
+                <p className="min-w-0 truncate font-semibold text-app-ink">{entry.memo || entry.referenceType}</p>
+                <JournalStatusBadge status={entry.status} />
+              </div>
+              <p className="mt-1 text-app-helper text-app-muted">{formatInteger(entry.lines.length)} سطور</p>
+            </div>
+          )) : <AppEmptyState title="لا توجد قيود" description="ستظهر القيود المحاسبية الأخيرة هنا." />}
+        </div>
+      </AppSurface>
+    </div>
+  );
+}
+
+function RecordsTab({ records, currency }: { records: FinancialRecordRow[]; currency?: string }) {
+  if (!records.length) {
+    return <AppEmptyState title="لا توجد سجلات" description="غيّر الفترة أو سجّل مدفوعات ومصروفات وحركات صندوق." />;
+  }
+
+  return (
+    <AppSurface title="كل السجلات المالية في الفترة">
+      <div className="hidden overflow-x-auto lg:block">
+        <table className="w-full min-w-[900px] border-separate border-spacing-0 text-right text-app-body">
+          <thead>
+            <tr className="text-app-label text-app-muted">
+              <th className="border-b border-app-border px-3 py-2 font-semibold">التاريخ</th>
+              <th className="border-b border-app-border px-3 py-2 font-semibold">النوع</th>
+              <th className="border-b border-app-border px-3 py-2 font-semibold">البيان</th>
+              <th className="border-b border-app-border px-3 py-2 font-semibold">الطريقة / الحالة</th>
+              <th className="border-b border-app-border px-3 py-2 font-semibold">داخل</th>
+              <th className="border-b border-app-border px-3 py-2 font-semibold">خارج</th>
+              <th className="border-b border-app-border px-3 py-2 font-semibold">المرجع</th>
+              <th className="border-b border-app-border px-3 py-2 font-semibold">ملاحظة</th>
+            </tr>
+          </thead>
+          <tbody>
+            {records.map((record) => (
+              <tr key={record.id} className="align-middle">
+                <td className="whitespace-nowrap border-b border-app-border px-3 py-3">{formatFinancialDate(record.date)}</td>
+                <td className="whitespace-nowrap border-b border-app-border px-3 py-3"><AppBadge variant="neutral">{record.type}</AppBadge></td>
+                <td className="border-b border-app-border px-3 py-3 font-semibold text-app-ink">{record.title}</td>
+                <td className="whitespace-nowrap border-b border-app-border px-3 py-3 text-app-muted">{record.method}</td>
+                <td className="whitespace-nowrap border-b border-app-border px-3 py-3 font-semibold text-app-success">{record.amountIn ? money(record.amountIn, currency) : "-"}</td>
+                <td className="whitespace-nowrap border-b border-app-border px-3 py-3 font-semibold text-app-danger">{record.amountOut ? money(record.amountOut, currency) : "-"}</td>
+                <td className="border-b border-app-border px-3 py-3 text-app-muted">{record.source || "-"}</td>
+                <td className="max-w-xs border-b border-app-border px-3 py-3 text-app-muted"><span className="block truncate">{record.note || "-"}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="grid gap-2 lg:hidden">
+        {records.map((record) => (
+          <article key={record.id} className="rounded-app-md border border-app-border bg-app-surface p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <AppBadge variant="neutral">{record.type}</AppBadge>
+                  <span className="text-app-helper text-app-muted">{formatFinancialDate(record.date)}</span>
+                </div>
+                <p className="mt-2 truncate font-semibold text-app-ink">{record.title}</p>
+                <p className="mt-1 truncate text-app-helper text-app-muted">{record.method} · {record.source || "-"}</p>
+              </div>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <FinancialFact label="داخل" value={record.amountIn ? money(record.amountIn, currency) : "-"} tone="success" />
+              <FinancialFact label="خارج" value={record.amountOut ? money(record.amountOut, currency) : "-"} tone="danger" />
+            </div>
+            {record.note ? <p className="mt-3 truncate text-app-helper text-app-muted">{record.note}</p> : null}
+          </article>
+        ))}
+      </div>
+    </AppSurface>
+  );
+}
+
+function AccountsTab({ accounts, onAddAccount }: { accounts: Account[]; onAddAccount: () => void }) {
+  return (
+    <AppSurface title="دليل الحسابات" action={<AppButton type="button" onClick={onAddAccount}>إضافة حساب</AppButton>}>
+      {accounts.length ? (
+        <>
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full min-w-[640px] border-separate border-spacing-0 text-right text-app-body">
+              <thead>
+                <tr className="text-app-label text-app-muted">
+                  <th className="border-b border-app-border px-3 py-2 font-semibold">الكود</th>
+                  <th className="border-b border-app-border px-3 py-2 font-semibold">الحساب</th>
+                  <th className="border-b border-app-border px-3 py-2 font-semibold">النوع</th>
+                  <th className="border-b border-app-border px-3 py-2 font-semibold">الحالة</th>
+                </tr>
+              </thead>
+              <tbody>
+                {accounts.map((account) => (
+                  <tr key={account.id}>
+                    <td className="border-b border-app-border px-3 py-3 font-semibold text-app-ink">{account.code}</td>
+                    <td className="border-b border-app-border px-3 py-3 text-app-ink">{account.name}</td>
+                    <td className="border-b border-app-border px-3 py-3 text-app-muted">{account.type}</td>
+                    <td className="border-b border-app-border px-3 py-3"><AccountStatusBadge active={account.isActive} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="grid gap-2 md:hidden">
+            {accounts.map((account) => (
+              <article key={account.id} className="rounded-app-md border border-app-border bg-app-surface p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-app-ink">{account.code} · {account.name}</p>
+                    <p className="mt-1 text-app-helper text-app-muted">{account.type}</p>
+                  </div>
+                  <AccountStatusBadge active={account.isActive} />
+                </div>
+              </article>
+            ))}
+          </div>
+        </>
+      ) : <AppEmptyState title="لا توجد حسابات" description="أضف أول حساب." action={<AppButton type="button" onClick={onAddAccount}>إضافة حساب</AppButton>} />}
+    </AppSurface>
+  );
+}
+
+function JournalTab({
+  accounts,
+  rangedEntries,
+  entryForm,
+  setEntryForm,
+  totalDebit,
+  totalCredit,
+  onSubmit
+}: {
+  accounts: Account[];
+  rangedEntries: JournalEntry[];
+  entryForm: EntryForm;
+  setEntryForm: (form: EntryForm) => void;
+  totalDebit: number;
+  totalCredit: number;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <div className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
+      <AppSurface title="قيد يدوي متوازن">
+        <form onSubmit={onSubmit} className="grid gap-3">
+          <AppFieldShell label="مدين">
+            <AppSelect value={entryForm.debitAccountId} onChange={(event) => setEntryForm({ ...entryForm, debitAccountId: event.target.value })}>
+              {accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+            </AppSelect>
+          </AppFieldShell>
+          <AppFieldShell label="دائن">
+            <AppSelect value={entryForm.creditAccountId} onChange={(event) => setEntryForm({ ...entryForm, creditAccountId: event.target.value })}>
+              {accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+            </AppSelect>
+          </AppFieldShell>
+          <AppFieldShell label="المبلغ">
+            <AppInput type="number" min="0" value={entryForm.amount} onChange={(event) => setEntryForm({ ...entryForm, amount: Number(event.target.value) })} />
+          </AppFieldShell>
+          <AppFieldShell label="البيان">
+            <AppInput value={entryForm.memo} onChange={(event) => setEntryForm({ ...entryForm, memo: event.target.value })} />
+          </AppFieldShell>
+          <div className={cn("rounded-app-md border px-3 py-2 text-app-body font-semibold", totalDebit === totalCredit ? "border-app-success-soft bg-app-success-soft text-app-success" : "border-app-danger-soft bg-app-danger-soft text-app-danger")}>
+            مدين {totalDebit} / دائن {totalCredit}
+          </div>
+          <AppButton type="submit" disabled={!entryForm.amount}>إضافة قيد</AppButton>
+        </form>
+      </AppSurface>
+      <AppSurface title="القيود">
+        {rangedEntries.length ? (
+          <div className="grid gap-2">
+            {rangedEntries.map((entry) => (
+              <div key={entry.id} className="rounded-app-md border border-app-border bg-app-surface-muted p-3 text-app-body">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-semibold text-app-ink">{entry.memo || entry.referenceType}</p>
+                  <JournalStatusBadge status={entry.status} />
+                </div>
+                <p className="mt-1 text-app-helper text-app-muted">{formatFinancialDate(entry.postedAt || entry.createdAt)} · {entry.lines.length} سطور</p>
+              </div>
+            ))}
+          </div>
+        ) : <AppEmptyState title="لا توجد قيود" description="أضف قيدًا متوازنًا أو غيّر الفترة." />}
+      </AppSurface>
+    </div>
+  );
+}
+
+function CashTab({
+  registers,
+  rangedMovements,
+  movementForm,
+  setMovementForm,
+  currency,
+  onSubmit,
+  onAddRegister
+}: {
+  registers: CashRegister[];
+  rangedMovements: CashMovement[];
+  movementForm: MovementForm;
+  setMovementForm: (form: MovementForm) => void;
+  currency?: string;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onAddRegister: () => void;
+}) {
+  return (
+    <div className="grid gap-4 xl:grid-cols-2">
+      <AppSurface title="حركة نقدية">
+        <form onSubmit={onSubmit} className="grid gap-3">
+          <AppFieldShell label="الصندوق">
+            <AppSelect value={movementForm.cashRegisterId} onChange={(event) => setMovementForm({ ...movementForm, cashRegisterId: event.target.value })}>
+              {registers.map((register) => <option key={register.id} value={register.id}>{register.name}</option>)}
+            </AppSelect>
+          </AppFieldShell>
+          <AppFieldShell label="النوع">
+            <AppSelect value={movementForm.type} onChange={(event) => setMovementForm({ ...movementForm, type: event.target.value as CashMovement["type"] })}>
+              {["IN", "OUT"].map((type) => <option key={type} value={type}>{option(type).label}</option>)}
+            </AppSelect>
+          </AppFieldShell>
+          <AppFieldShell label="المبلغ">
+            <AppInput type="number" min="0" value={movementForm.amount} onChange={(event) => setMovementForm({ ...movementForm, amount: Number(event.target.value) })} />
+          </AppFieldShell>
+          <AppFieldShell label="ملاحظة">
+            <AppInput value={movementForm.note} onChange={(event) => setMovementForm({ ...movementForm, note: event.target.value })} />
+          </AppFieldShell>
+          <AppButton type="submit" disabled={!movementForm.cashRegisterId}>تسجيل</AppButton>
+        </form>
+      </AppSurface>
+
+      <AppSurface title="الصناديق" action={<AppButton type="button" onClick={onAddRegister}>فتح صندوق</AppButton>}>
+        {registers.length ? (
+          <div className="grid gap-2">
+            {registers.map((register) => (
+              <div key={register.id} className="rounded-app-md border border-app-border bg-app-surface-muted p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-semibold text-app-ink">{register.name}</p>
+                  <AccountStatusBadge active={register.isOpen} />
+                </div>
+                <p className="mt-1 text-app-body font-semibold text-app-ink">{money(register.currentBalance, currency)}</p>
+              </div>
+            ))}
+          </div>
+        ) : <AppEmptyState title="لا توجد صناديق" description="افتح صندوقًا قبل تسجيل حركة نقدية." action={<AppButton type="button" onClick={onAddRegister}>فتح صندوق</AppButton>} />}
+      </AppSurface>
+
+      <AppSurface title="الحركات في الفترة" className="xl:col-span-2">
+        {rangedMovements.length ? (
+          <div className="grid gap-2">
+            {rangedMovements.map((movement) => (
+              <div key={movement.id} className="grid gap-2 rounded-app-md border border-app-border bg-app-surface-muted p-3 text-app-body md:grid-cols-[160px_120px_1fr_160px] md:items-center">
+                <span className="text-app-muted">{formatFinancialDate(movement.createdAt)}</span>
+                <AppBadge variant={movement.type === "IN" ? "success" : "danger"}>{movement.type === "IN" ? "دخول" : "خروج"}</AppBadge>
+                <span className="min-w-0 truncate text-app-muted">{movement.note || movement.referenceType}</span>
+                <span className={cn("font-semibold", movement.type === "IN" ? "text-app-success" : "text-app-danger")}>{money(movement.amount, currency)}</span>
+              </div>
+            ))}
+          </div>
+        ) : <AppEmptyState title="لا توجد حركات" description="غيّر الفترة أو سجّل حركة نقدية." />}
+      </AppSurface>
+    </div>
+  );
+}
+
+function AccountingSummary({ title, value, tone = "neutral" }: { title: string; value: string; tone?: "neutral" | "success" | "danger" }) {
+  return (
+    <div className="rounded-app-md border border-app-border bg-app-surface p-3">
+      <p className="text-app-helper font-medium text-app-muted">{title}</p>
+      <p className={cn("mt-1 truncate font-semibold", tone === "success" ? "text-app-success" : tone === "danger" ? "text-app-danger" : "text-app-ink")}>{value}</p>
+    </div>
+  );
+}
+
+function FinancialFact({ label, value, tone = "neutral" }: { label: string; value: string; tone?: "neutral" | "success" | "danger" }) {
+  return (
+    <div className="rounded-app-sm border border-app-border bg-app-surface-muted px-3 py-2">
+      <p className="text-app-helper text-app-muted">{label}</p>
+      <p className={cn("mt-1 truncate font-semibold", tone === "success" ? "text-app-success" : tone === "danger" ? "text-app-danger" : "text-app-ink")}>{value}</p>
+    </div>
+  );
+}
+
+function CashMovementBars({ data, currency }: { data: ReturnType<typeof buildCashSeries>; currency?: string }) {
+  const maxAmount = Math.max(...data.flatMap((point) => [point.cashIn, point.cashOut]), 0);
+  if (maxAmount <= 0) {
+    return <AppEmptyState title="لا توجد حركة نقدية" description="ستظهر حركة الدخول والخروج عند تسجيل عمليات نقدية." />;
+  }
+
+  return (
+    <div className="grid gap-4">
+      <div className="flex flex-wrap items-center gap-3 text-app-label font-semibold">
+        <span className="inline-flex items-center gap-1 text-app-success"><span className="h-2 w-2 rounded-full bg-app-success" /> دخول</span>
+        <span className="inline-flex items-center gap-1 text-app-danger"><span className="h-2 w-2 rounded-full bg-app-danger" /> خروج</span>
+      </div>
+      <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(72px, 1fr))" }}>
+        {data.map((point) => {
+          const inHeight = Math.max(8, Math.round((point.cashIn / maxAmount) * 120));
+          const outHeight = Math.max(8, Math.round((point.cashOut / maxAmount) * 120));
+          return (
+            <div key={point.key} className="grid gap-2 text-center">
+              <div className="flex h-32 items-end justify-center gap-1 rounded-app-md border border-app-border bg-app-surface-muted p-2">
+                <div className="w-3 rounded-t bg-app-success" style={{ height: point.cashIn ? inHeight : 4 }} title={money(point.cashIn, currency)} />
+                <div className="w-3 rounded-t bg-app-danger" style={{ height: point.cashOut ? outHeight : 4 }} title={money(point.cashOut, currency)} />
+              </div>
+              <p className="text-app-helper font-medium text-app-muted">{point.label}</p>
+              <p className={cn("text-app-helper font-semibold", point.net >= 0 ? "text-app-success" : "text-app-danger")}>{money(point.net, currency)}</p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PaymentMethodBars({ data, currency }: { data: ReturnType<typeof buildPaymentBreakdown>; currency?: string }) {
+  const maxAmount = Math.max(...data.map((point) => point.amount), 0);
+  if (maxAmount <= 0) {
+    return <AppEmptyState title="لا توجد مدفوعات" description="ستظهر وسائل الدفع بعد تسجيل المدفوعات." />;
+  }
+
+  return (
+    <div className="grid gap-3">
+      {data.map((point) => (
+        <div key={point.method} className="grid gap-1">
+          <div className="flex items-center justify-between gap-3 text-app-label font-semibold">
+            <span>{paymentMethodLabel(point.method)}</span>
+            <span>{money(point.amount, currency)}</span>
+          </div>
+          <div className="h-3 overflow-hidden rounded-app-sm bg-app-surface-muted">
+            <div className="h-full rounded-app-sm bg-app-primary" style={{ width: `${Math.max(6, (point.amount / maxAmount) * 100)}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function JournalStatusBadge({ status }: { status: JournalEntry["status"] }) {
+  const variant = status === "POSTED" ? "success" : status === "REVERSED" ? "danger" : "warning";
+  return <AppBadge variant={variant}>{journalStatusLabel(status)}</AppBadge>;
+}
+
+function AccountStatusBadge({ active }: { active: boolean }) {
+  return active ? <AppBadge variant="success">نشط</AppBadge> : <AppBadge variant="neutral">غير فعال</AppBadge>;
+}
+
+const accountingTabs: Array<{ value: AccountingTab; label: string }> = [
+  { value: "overview", label: "نظرة عامة" },
+  { value: "records", label: "كل السجلات" },
+  { value: "accounts", label: "الحسابات" },
+  { value: "journal", label: "القيود" },
+  { value: "cash", label: "الصندوق" }
+];

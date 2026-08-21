@@ -1,20 +1,20 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
+import { LandingPage } from "@/components/landing/LandingPage";
 import { MenuTemplateRenderer } from "@/components/menu/MenuTemplateRenderer";
-import { SignupPage } from "@/components/signup/SignupPage";
 import { getRestaurantByDomain } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "منصة منيو إلكتروني للمطاعم والكافيهات",
-  description: "حوّل منيو مطعمك إلى تجربة رقمية احترافية مع قوالب Premium، بحث سريع، صور، باقات، ولوحة تحكم لصاحب المطعم.",
+  title: "DMenu - القائمة الذكية لمطعمك",
+  description: "حوّل منيو مطعمك إلى تجربة رقمية تفاعلية وأنيقة مع قوالب DMenu، لوحة تحكم، بحث سريع، وروابط جاهزة للمشاركة.",
   alternates: {
     canonical: "/"
   },
   openGraph: {
-    title: "منصة منيو إلكتروني للمطاعم والكافيهات",
-    description: "سجل مطعمك وابدأ منيو إلكتروني سريع وجميل يعمل على الجوال ويدعم الباقات والقوالب والدومين المخصص.",
+    title: "DMenu - القائمة الذكية لمطعمك",
+    description: "أنشئ منيو إلكتروني سريع وجميل يعمل على الجوال ويدعم القوالب والباقات والدومين المخصص.",
     url: "/"
   }
 };
@@ -54,5 +54,5 @@ export default async function HomePage() {
     }
   }
 
-  return <SignupPage />;
+  return <LandingPage />;
 }
