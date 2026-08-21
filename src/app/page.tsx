@@ -28,6 +28,8 @@ export default async function HomePage() {
     host === "localhost" ||
     host === "https://dmenu2.netlify.app/" ||
     host === "dmenu2.netlify.app" ||
+    host === "https://d4menu.onrender.com/" ||
+    host === "d4menu.onrender.com" ||
     host === "127.0.0.1" ||
     host === platformDomain;
 
