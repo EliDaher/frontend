@@ -35,6 +35,11 @@ export function PopupForm({
   const descriptionId = useId();
   const panelRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocusedElement = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -47,7 +52,7 @@ export function PopupForm({
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        onClose();
+        onCloseRef.current();
         return;
       }
 
@@ -62,7 +67,7 @@ export function PopupForm({
       window.removeEventListener("keydown", handleKeyDown);
       previouslyFocusedElement.current?.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
