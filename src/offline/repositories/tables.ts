@@ -1,7 +1,8 @@
-import { adminRequest } from "@/lib/api";
+import { adminBackgroundRequest } from "@/lib/api";
 import type { OpsTable } from "@/types/ops";
 import { offlineDb } from "../db";
 import { createLocalEntityId, getDeviceId } from "../device";
+import { shouldProtectHydratedRecord } from "../hydration";
 import { queueOperation } from "../outbox";
 import type { LocalTable } from "../schema";
 import { startSync } from "../sync-engine";
@@ -12,22 +13,53 @@ export type OfflineContext = {
   userId: string;
 };
 
+const tableRefreshes = new Map<string, Promise<OpsTable[]>>();
+
 export async function hydrateTables(context: OfflineContext) {
+  void refreshTables(context);
+  return listLocalTables(context.tenantId);
+}
+
+export async function refreshTables(context: OfflineContext) {
+  const current = tableRefreshes.get(context.tenantId);
+  if (current) return current;
+
+  const refresh = pullTables(context)
+    .catch(() => listLocalTables(context.tenantId))
+    .finally(() => {
+      tableRefreshes.delete(context.tenantId);
+    });
+  tableRefreshes.set(context.tenantId, refresh);
+  return refresh;
+}
+
+async function pullTables(context: OfflineContext) {
   try {
-    const remoteTables = await adminRequest<OpsTable[]>("/api/owner/ops/tables", context.token);
+    const remoteTables = await adminBackgroundRequest<OpsTable[]>("/api/owner/ops/tables", context.token);
     const now = new Date().toISOString();
     const deviceId = await getDeviceId();
-    await offlineDb.opsTables.bulkPut(
-      remoteTables.map((table) => ({
-        ...table,
-        restaurantId: context.tenantId,
-        deviceId,
-        syncStatus: "synced",
-        lastSyncedAt: now,
-        version: tableVersion(table)
-      }))
-    );
-    return remoteTables;
+    await offlineDb.transaction("rw", offlineDb.opsTables, offlineDb.syncQueue, offlineDb.syncConflicts, async () => {
+      for (const table of remoteTables) {
+        const local = await offlineDb.opsTables.get(table.id);
+        const protectedLocal = await shouldProtectHydratedRecord({
+          tenantId: context.tenantId,
+          entityType: "table",
+          entityId: table.id,
+          local
+        });
+        if (protectedLocal) continue;
+
+        await offlineDb.opsTables.put({
+          ...table,
+          restaurantId: context.tenantId,
+          deviceId,
+          syncStatus: "synced",
+          lastSyncedAt: now,
+          version: tableVersion(table)
+        });
+      }
+    });
+    return listLocalTables(context.tenantId);
   } catch {
     return listLocalTables(context.tenantId);
   }

@@ -5,7 +5,7 @@ import { useEffect, useId, useRef } from "react";
 import type { ReactNode } from "react";
 import { cn } from "./OperationalPrimitives";
 
-type PopupFormMaxWidth = "sm" | "md" | "lg" | "xl";
+type PopupFormMaxWidth = "sm" | "md" | "lg" | "xl" | "wide";
 
 type PopupFormProps = {
   open: boolean;
@@ -20,7 +20,8 @@ const maxWidthClasses: Record<PopupFormMaxWidth, string> = {
   sm: "max-w-sm",
   md: "max-w-md",
   lg: "max-w-lg",
-  xl: "max-w-xl"
+  xl: "max-w-xl",
+  wide: "max-w-[min(1100px,94vw)]"
 };
 
 export function PopupForm({

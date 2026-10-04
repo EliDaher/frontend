@@ -1,5 +1,6 @@
 "use client";
 
+import { ApiError } from "@/lib/api-errors";
 import type { CashMovement, InventoryItem, JournalEntry, OperationalPayment, RecipeDraftLine, RecipeIngredient } from "@/types/ops";
 
 export const tableStatuses = ["AVAILABLE", "OCCUPIED", "RESERVED", "CLEANING", "DISABLED"] as const;
@@ -218,11 +219,36 @@ export function recipeDraftForMenuItem(recipes: RecipeIngredient[], inventoryIte
   return inventoryItems[0] ? [{ inventoryItemId: inventoryItems[0].id, quantity: 1, unit: inventoryItems[0].unit }] : [];
 }
 
-export async function run(state: { setMessage: (message: string) => void }, action: () => Promise<void>) {
+export async function run(state: { setMessage: (message: string) => void }, action: () => Promise<void>, successMessage?: string) {
   state.setMessage("");
   try {
     await action();
+    if (successMessage) state.setMessage(successMessage);
   } catch (error) {
-    state.setMessage(error instanceof Error ? error.message : "حدث خطأ غير متوقع.");
+    state.setMessage(formatActionError(error));
   }
+}
+
+export function formatActionError(error: unknown) {
+  if (error instanceof ApiError) {
+    if (error.status === 401 || error.code === "auth_required") return "انتهت جلسة تسجيل الدخول. سجّل الدخول مجددًا لإكمال المزامنة.";
+    if (error.code === "version_conflict") return "تعذر مزامنة التعديل لأن السجل تغيّر من جهاز آخر. راجع البيانات قبل المتابعة.";
+    if (error.code === "validation_error") return "بيانات العملية غير مكتملة أو غير مقبولة. راجع الحقول وحاول مرة أخرى.";
+    if (error.status >= 500) return "تعذر الاتصال بالخادم الآن. حاول مرة أخرى بعد قليل.";
+    return error.message || "تعذر تنفيذ العملية. راجع البيانات وحاول مرة أخرى.";
+  }
+
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return "انتهت مهلة الاتصال بالخادم. حاول مرة أخرى.";
+  }
+
+  if (error instanceof TypeError) {
+    return "تعذر الاتصال بالخادم. تحقق من الاتصال وحاول مرة أخرى.";
+  }
+
+  const message = error instanceof Error ? error.message : "";
+  if (/failed to fetch|network|unauthorized|firebase|fingerprint/i.test(message)) {
+    return "تعذر تنفيذ العملية الآن. تحقق من الاتصال أو سجّل الدخول مجددًا ثم حاول مرة أخرى.";
+  }
+  return message || "حدث خطأ غير متوقع.";
 }

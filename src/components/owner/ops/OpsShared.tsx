@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { OwnerAppShell } from "@/components/owner/dashboard/OwnerAppShell";
 import { AppButton, AppEmptyState, cn } from "@/components/shared";
 import { formatMoney } from "@/lib/format";
@@ -18,6 +18,7 @@ export type LoadState = {
   modules: RestaurantModules | null;
   message: string;
   busy: boolean;
+  refreshing: boolean;
   setMessage: (message: string) => void;
   loadRestaurant: (authToken?: string) => Promise<Restaurant | null>;
 };
@@ -29,10 +30,20 @@ export function useOpsPage(requiredModule: RestaurantModule): LoadState {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const activeLoadRef = useRef(0);
+  const mountedRef = useRef(false);
 
   const modules = useMemo(() => {
     return restaurant ? normalizeModules(restaurant.plan, restaurant.modules) : null;
   }, [restaurant]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     const storedToken = window.localStorage.getItem("menu-owner-token");
@@ -62,27 +73,58 @@ export function useOpsPage(requiredModule: RestaurantModule): LoadState {
   }, [restaurant?.id, token]);
 
   async function loadRestaurant(authToken = token) {
-    setBusy(true);
+    const loadId = activeLoadRef.current + 1;
+    activeLoadRef.current = loadId;
+    setBusy(!restaurant);
+    setRefreshing(Boolean(restaurant));
     setMessage("");
     try {
-      const { restaurant: nextRestaurant, offline } = await loadRestaurantWithOfflineFallback(authToken);
-      setRestaurant(nextRestaurant);
-      const enabledModules = normalizeModules(nextRestaurant.plan, nextRestaurant.modules);
-      if (!enabledModules[requiredModule]) {
-        setMessage(`وحدة ${moduleLabels[requiredModule]} غير مفعلة لهذا المطعم.`);
-      } else if (offline) {
-        setMessage("أنت تعمل دون اتصال. سيتم حفظ التغييرات محليًا ومزامنتها عند عودة الإنترنت.");
+      const { restaurant: nextRestaurant, offline, refresh } = await loadRestaurantWithOfflineFallback(authToken);
+      if (!isCurrentLoad(loadId)) return null;
+      applyRestaurantState(nextRestaurant, offline);
+      setBusy(false);
+
+      if (refresh) {
+        setRefreshing(true);
+        void refresh
+          .then((refreshedRestaurant) => {
+            if (!refreshedRestaurant || !isCurrentLoad(loadId)) return;
+            applyRestaurantState(refreshedRestaurant, false);
+          })
+          .finally(() => {
+            if (isCurrentLoad(loadId)) setRefreshing(false);
+          });
+      } else {
+        setRefreshing(false);
       }
       return nextRestaurant;
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "تعذر تحميل بيانات المطعم.");
+      if (isCurrentLoad(loadId)) {
+        setMessage(error instanceof Error ? error.message : "تعذر تحميل بيانات المطعم.");
+      }
       return null;
     } finally {
-      setBusy(false);
+      if (isCurrentLoad(loadId)) setBusy(false);
     }
   }
 
-  return { token, restaurant, modules, message, busy, setMessage, loadRestaurant };
+  function isCurrentLoad(loadId: number) {
+    return mountedRef.current && activeLoadRef.current === loadId;
+  }
+
+  function applyRestaurantState(nextRestaurant: Restaurant, offline: boolean) {
+    setRestaurant(nextRestaurant);
+    const enabledModules = normalizeModules(nextRestaurant.plan, nextRestaurant.modules);
+    if (!enabledModules[requiredModule]) {
+      setMessage(`وحدة ${moduleLabels[requiredModule]} غير مفعلة لهذا المطعم.`);
+    } else if (offline) {
+      setMessage("أنت تعمل دون اتصال. سيتم حفظ التغييرات محليًا ومزامنتها عند عودة الإنترنت.");
+    } else {
+      setMessage("");
+    }
+  }
+
+  return { token, restaurant, modules, message, busy, refreshing, setMessage, loadRestaurant };
 }
 
 export function OpsShell({
@@ -134,7 +176,25 @@ const opsLinks = [
 ];
 
 function Message({ text }: { text: string }) {
-  return <p className="mb-4 rounded-app-md border border-app-danger-soft bg-app-danger-soft p-3 text-app-body font-semibold text-app-danger">{text}</p>;
+  const tone = messageTone(text);
+  return (
+    <p
+      className={cn(
+        "mb-4 rounded-app-md border p-3 text-app-body font-semibold",
+        tone === "success" && "border-app-success-soft bg-app-success-soft text-app-success",
+        tone === "warning" && "border-app-warning-soft bg-app-warning-soft text-app-warning",
+        tone === "danger" && "border-app-danger-soft bg-app-danger-soft text-app-danger"
+      )}
+    >
+      {text}
+    </p>
+  );
+}
+
+function messageTone(text: string): "success" | "warning" | "danger" {
+  if (text.includes("بانتظار المزامنة") || text.includes("دون اتصال") || text.includes("محليًا")) return "warning";
+  if (text.trim().startsWith("تم ")) return "success";
+  return "danger";
 }
 
 function Loading() {

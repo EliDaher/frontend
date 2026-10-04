@@ -6,12 +6,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useReactToPrint } from "react-to-print";
 import { AppButton } from "@/components/shared";
 import { adminRequest } from "@/lib/api";
+import { offlineDb } from "@/offline/db";
+import { useLiveQuery } from "@/offline/hooks/useLiveQuery";
 import type { Restaurant } from "@/types/menu";
 import type { OpsOrder, OpsTable } from "@/types/ops";
+import { buildReceipt, type ReceiptInvoiceSnapshot } from "./receipt";
 
-const CONSUMER_TAX_RATE = 0.05;
-const LOCAL_ADMIN_TAX_RATE = 0.003;
-const DEFAULT_VAT_NUMBER = "105200001740";
 const cutDelayMs = 2_000;
 const receiptPageStyle = `
   @page {
@@ -84,6 +84,13 @@ const receiptPageStyle = `
     grid-template-columns: 18mm minmax(0, 1fr) 18mm !important;
   }
 
+  .receipt-confirmation-status {
+    margin: 4px 0;
+    font-size: 11px;
+    font-weight: bold;
+    text-align: center;
+  }
+
   .receipt-items th,
   .receipt-items td {
     max-width: 120px;
@@ -105,14 +112,32 @@ export function OrderReceiptPrintButton({
 }) {
   const printRef = useRef<HTMLDivElement>(null);
   const [qrCodeUrl, setQrCodeUrl] = useState("");
-  const receipt = useMemo(() => buildReceipt(order, restaurant, table), [order, restaurant, table]);
+  const [printInvoiceOverride, setPrintInvoiceOverride] = useState<ReceiptInvoiceSnapshot | undefined>();
+  const [printing, setPrinting] = useState(false);
+  const [printError, setPrintError] = useState("");
+  const { value: invoice } = useLiveQuery(
+    () => order.invoiceId ? offlineDb.invoices.get(order.invoiceId) as Promise<ReceiptInvoiceSnapshot | undefined> : Promise.resolve(undefined),
+    undefined as ReceiptInvoiceSnapshot | undefined,
+    [order.invoiceId]
+  );
+  const receiptInvoice = printInvoiceOverride ?? invoice;
+  const receipt = useMemo(() => buildReceipt(order, restaurant, table, receiptInvoice), [order, restaurant, table, receiptInvoice]);
   const handlePrint = useReactToPrint({
     contentRef: printRef,
     pageStyle: receiptPageStyle,
+    onBeforePrint: async () => {
+      setPrinting(true);
+      setPrintError("");
+    },
     onAfterPrint: () => {
+      setPrinting(false);
       window.setTimeout(() => {
         void cutReceiptPaper(token, restaurant);
       }, cutDelayMs);
+    },
+    onPrintError: () => {
+      setPrinting(false);
+      setPrintError("تعذر فتح نافذة الطباعة. الطلب محفوظ، ويمكن إعادة المحاولة.");
     }
   });
 
@@ -137,8 +162,22 @@ export function OrderReceiptPrintButton({
     };
   }, [receipt.qrPayload]);
 
-  function printReceipt() {
-    handlePrint();
+  async function printReceipt() {
+    setPrintError("");
+    try {
+      if (order.invoiceId && !receiptInvoice) {
+        const loadedInvoice = await offlineDb.invoices.get(order.invoiceId) as ReceiptInvoiceSnapshot | undefined;
+        if (loadedInvoice) {
+          setPrintInvoiceOverride(loadedInvoice);
+          window.setTimeout(() => handlePrint(), 0);
+          return;
+        }
+      }
+      handlePrint();
+    } catch {
+      setPrinting(false);
+      setPrintError("تعذر تجهيز الإيصال للطباعة. الطلب محفوظ، ويمكن إعادة المحاولة.");
+    }
   }
 
   return (
@@ -146,12 +185,14 @@ export function OrderReceiptPrintButton({
       <AppButton
         type="button"
         variant="secondary"
-        disabled={disabled}
-        onClick={printReceipt}
-        iconStart={<Printer className="h-4 w-4" />}
+        loading={printing}
+        disabled={disabled || printing}
+        onClick={() => void printReceipt()}
+        iconStart={!printing ? <Printer className="h-4 w-4" /> : undefined}
       >
-        طباعة
+        {printing ? "جاري الطباعة..." : "طباعة"}
       </AppButton>
+      {printError ? <span className="basis-full text-app-helper font-semibold text-app-danger">{printError}</span> : null}
       <div ref={printRef} className="receipt-print-source" aria-hidden="true">
         <article className="thermal-receipt">
           <header className="receipt-header">
@@ -162,6 +203,7 @@ export function OrderReceiptPrintButton({
               <p>فاتورة ضريبية مبسطة</p>
               <p>Simplified Tax Invoice</p>
             </div>
+            <p className="receipt-confirmation-status">{receipt.confirmationStatus}</p>
             <p className="receipt-meta">
               <span>رقم الفاتورة :</span>
               <strong>{receipt.invoiceNo}</strong>
@@ -186,8 +228,8 @@ export function OrderReceiptPrintButton({
               </tr>
             </thead>
             <tbody>
-              {order.items.map((item, index) => (
-                <tr key={`${item.menuItemId}-${index}`}>
+              {receipt.items.map((item, index) => (
+                <tr key={`${item.id}-${index}`}>
                   <td>{index + 1}</td>
                   <td>{formatQuantity(item.quantity)}</td>
                   <td>{formatLineAmount(item.unitPrice)}</td>
@@ -202,6 +244,8 @@ export function OrderReceiptPrintButton({
             <ReceiptTotal label="ضريبة الإنفاق الاستهلاكي" currency={receipt.currency} amount={receipt.consumerTax} />
             <ReceiptTotal label="ضريبة إدارة محلية" currency={receipt.currency} amount={receipt.localAdminTax} />
             <ReceiptTotal label="اجمالي المبلغ المستحق" currency={receipt.currency} amount={receipt.payableAmount} strong />
+            <ReceiptTotal label="المدفوع" currency={receipt.currency} amount={receipt.paidAmount} />
+            <ReceiptTotal label="المتبقي" currency={receipt.currency} amount={receipt.remainingAmount} />
           </section>
 
           <div className="receipt-qr">
@@ -236,64 +280,6 @@ function ReceiptTotal({ label, currency, amount, strong = false }: { label: stri
   );
 }
 
-function buildReceipt(order: OpsOrder, restaurant: Restaurant | null, table?: OpsTable | null) {
-  const baseAmount = Math.max(numberValue(order.subTotal) - numberValue(order.discount), 0);
-  const consumerTax = baseAmount * CONSUMER_TAX_RATE;
-  const localAdminTax = baseAmount * LOCAL_ADMIN_TAX_RATE;
-  const payableAmount = Math.round(baseAmount + consumerTax + localAdminTax);
-  const restaurantName = restaurant?.receiptRestaurantName?.trim() || restaurant?.name?.trim() || "المطعم";
-  const vatNumber = restaurant?.vatNumber?.trim() || DEFAULT_VAT_NUMBER;
-  const invoiceNo = compactOrderInvoiceNo(order.id);
-  const invoiceDateTime = formatReceiptDateTime(order.updatedAt || order.orderedAt || order.createdAt);
-  const currency = normalizeReceiptCurrency(restaurant?.currency);
-  const saleLabel = table?.name ? `مبيعات نقدية ط ${table.name}` : "مبيعات نقدية";
-
-  const summary = {
-    restaurantName,
-    vatNumber,
-    invoiceNo,
-    invoiceDateTime,
-    baseAmount: Math.round(baseAmount),
-    consumerTax: Math.round(consumerTax),
-    localAdminTax: Math.round(localAdminTax),
-    payableAmount,
-    currency
-  };
-
-  return {
-    restaurantName,
-    location: restaurant?.receiptLocation?.trim() || "",
-    vatNumber,
-    invoiceNo,
-    invoiceDateTime,
-    saleLabel,
-    currency,
-    baseAmount,
-    consumerTax,
-    localAdminTax,
-    payableAmount,
-    qrPayload: JSON.stringify(summary)
-  };
-}
-
-function compactOrderInvoiceNo(orderId: string) {
-  const value = String(orderId || "").trim();
-  const withoutOrderPrefix = value.replace(/^order[_-]?/i, "");
-  return (withoutOrderPrefix || value || "00000").slice(0, 5);
-}
-
-function formatReceiptDateTime(value: string | undefined) {
-  const parsed = value ? new Date(value) : new Date();
-  const date = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
-  const day = String(date.getDate()).padStart(2, "0");
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const year = date.getFullYear();
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  const seconds = String(date.getSeconds()).padStart(2, "0");
-  return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
-}
-
 function formatLineAmount(value: number) {
   return numberValue(value).toLocaleString("en-US", {
     minimumFractionDigits: 2,
@@ -307,12 +293,6 @@ function formatReceiptAmount(value: number) {
 
 function formatQuantity(value: number) {
   return String(Math.round(numberValue(value)));
-}
-
-function normalizeReceiptCurrency(currency: string | undefined) {
-  const value = currency?.trim();
-  if (!value || value.toUpperCase() === "SYP") return "SP";
-  return value;
 }
 
 function numberValue(value: unknown) {

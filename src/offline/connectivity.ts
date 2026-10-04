@@ -1,8 +1,10 @@
 import { API_BASE_URL } from "@/lib/api";
+import { inspectToken } from "./auth-session";
 
 export type ConnectivityState = {
   browserOnline: boolean;
   apiReachable: boolean;
+  authRequired: boolean;
   checkedAt: string;
 };
 
@@ -15,6 +17,26 @@ export async function checkApiReachable(token?: string): Promise<ConnectivitySta
     return {
       browserOnline,
       apiReachable: false,
+      authRequired: false,
+      checkedAt
+    };
+  }
+
+  const tokenInspection = inspectToken(token);
+  if (!tokenInspection.present) {
+    return {
+      browserOnline,
+      apiReachable: true,
+      authRequired: true,
+      checkedAt
+    };
+  }
+
+  if (tokenInspection.present && tokenInspection.expired) {
+    return {
+      browserOnline,
+      apiReachable: true,
+      authRequired: true,
       checkedAt
     };
   }
@@ -32,13 +54,15 @@ export async function checkApiReachable(token?: string): Promise<ConnectivitySta
 
     return {
       browserOnline,
-      apiReachable: response.ok,
+      apiReachable: response.ok || response.status === 401,
+      authRequired: response.status === 401,
       checkedAt
     };
   } catch {
     return {
       browserOnline,
       apiReachable: false,
+      authRequired: false,
       checkedAt
     };
   } finally {

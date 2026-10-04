@@ -19,6 +19,7 @@ export function SyncStatusIndicator({ tenantId, token }: { tenantId?: string; to
 
   const status = useSyncStatus(tenantId, storedToken);
   const offline = !status.browserOnline || !status.apiReachable;
+  const authRequired = status.authRequired;
   const failed = status.failed + status.conflict;
   const waiting = status.totalWaiting;
   const syncing = status.syncing > 0 || status.syncInProgress;
@@ -127,6 +128,15 @@ export function SyncStatusIndicator({ tenantId, token }: { tenantId?: string; to
     );
   }
 
+  if (authRequired) {
+    return (
+      <span className="inline-flex h-10 items-center gap-2 rounded-app-md border border-app-warning-soft bg-app-warning-soft px-3 text-xs font-semibold text-app-warning">
+        <AlertTriangle className="h-4 w-4" />
+        يلزم تسجيل الدخول {waiting > 0 ? `· ${waiting}` : ""}
+      </span>
+    );
+  }
+
   if (offline) {
     return (
       <span className="inline-flex h-10 items-center gap-2 rounded-app-md border border-app-border bg-app-surface-muted px-3 text-xs font-semibold text-app-muted">
@@ -211,7 +221,9 @@ function localizedError(code: string, fallback: string) {
     validation_error: "بيانات العملية غير مكتملة أو غير مقبولة.",
     blocked_dependency: "بانتظار حل عملية سابقة على نفس الطلب أو الطاولة.",
     version_conflict: "تم تعديل هذا السجل من جهاز آخر قبل المزامنة.",
+    missing_base_version: "تحتاج العملية إلى إصدار محفوظ قبل المزامنة.",
     missing_entity: "السجل غير موجود على السيرفر.",
+    auth_required: "انتهت صلاحية الجلسة. سجّل الدخول لمتابعة المزامنة.",
     network_error: "تعذر الاتصال بالسيرفر. ستتم إعادة المحاولة.",
     stale_sync: "انقطعت المزامنة قبل اكتمال الحفظ، ستتم إعادة المحاولة.",
     sync_transaction_order_error: "حدث خطأ داخلي في ترتيب حفظ المزامنة. أعد المحاولة بعد تحديث النظام."

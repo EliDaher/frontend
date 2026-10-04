@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AppBadge,
   AppButton,
@@ -17,6 +17,22 @@ import {
 } from "@/components/shared";
 import { adminRequest } from "@/lib/api";
 import { formatInteger } from "@/lib/format";
+import { createActionGuard } from "@/offline/action-guard";
+import { useLiveQuery } from "@/offline/hooks/useLiveQuery";
+import {
+  createLocalCashMovement,
+  hydrateFinancialHistory,
+  getPendingCashBalanceEffect,
+  listLocalAccounts,
+  listLocalCashMovements,
+  listLocalCashRegisters,
+  listLocalExpenses,
+  listLocalJournalEntries,
+  listLocalPayments,
+  refreshFinancialHistory
+} from "@/offline/repositories/financial-history";
+import type { OfflineContext } from "@/offline/repositories/tables";
+import type { LocalCashMovement } from "@/offline/schema";
 import type { Account, CashMovement, CashRegister, Expense, JournalEntry, OperationalPayment } from "@/types/ops";
 import { money, OpsShell, useOpsPage } from "./OpsShared";
 import {
@@ -81,12 +97,6 @@ type MovementForm = {
 export function AccountingOpsPage() {
   const state = useOpsPage("accounting");
   const [tab, setTab] = useState<AccountingTab>("overview");
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [entries, setEntries] = useState<JournalEntry[]>([]);
-  const [registers, setRegisters] = useState<CashRegister[]>([]);
-  const [movements, setMovements] = useState<CashMovement[]>([]);
-  const [payments, setPayments] = useState<OperationalPayment[]>([]);
-  const [expenses, setExpenses] = useState<Expense[]>([]);
   const [dateRange, setDateRange] = useState(buildCurrentMonthRange);
   const [accountForm, setAccountForm] = useState<AccountForm>({ code: "", name: "", type: "ASSET", isActive: true });
   const [entryForm, setEntryForm] = useState<EntryForm>({ debitAccountId: "", creditAccountId: "", amount: 0, memo: "" });
@@ -94,28 +104,41 @@ export function AccountingOpsPage() {
   const [movementForm, setMovementForm] = useState<MovementForm>({ cashRegisterId: "", type: "IN", amount: 0, note: "" });
   const [accountFormOpen, setAccountFormOpen] = useState(false);
   const [cashRegisterFormOpen, setCashRegisterFormOpen] = useState(false);
+  const [movementBusy, setMovementBusy] = useState(false);
+  const movementGuard = useRef(createActionGuard());
+  const tenantId = state.restaurant?.id ?? "";
+  const offlineContext = useMemo<OfflineContext | null>(() => {
+    if (!state.token || !tenantId) return null;
+    return { token: state.token, tenantId, userId: state.restaurant?.ownerUserId ?? "owner" };
+  }, [state.restaurant?.ownerUserId, state.token, tenantId]);
+  const { value: accounts } = useLiveQuery(() => tenantId ? listLocalAccounts(tenantId) : Promise.resolve([]), [] as Account[], [tenantId]);
+  const { value: entries } = useLiveQuery(() => tenantId ? listLocalJournalEntries(tenantId) : Promise.resolve([]), [] as JournalEntry[], [tenantId]);
+  const { value: registers } = useLiveQuery(() => tenantId ? listLocalCashRegisters(tenantId) : Promise.resolve([]), [] as CashRegister[], [tenantId]);
+  const { value: movements } = useLiveQuery(() => tenantId ? listLocalCashMovements(tenantId) : Promise.resolve([]), [] as LocalCashMovement[], [tenantId]);
+  const { value: payments } = useLiveQuery(() => tenantId ? listLocalPayments(tenantId) : Promise.resolve([]), [] as OperationalPayment[], [tenantId]);
+  const { value: expenses } = useLiveQuery(() => tenantId ? listLocalExpenses(tenantId) : Promise.resolve([]), [] as Expense[], [tenantId]);
+  const { value: pendingCashEffect } = useLiveQuery(() => tenantId ? getPendingCashBalanceEffect(tenantId) : Promise.resolve(0), 0, [tenantId]);
 
   useEffect(() => {
-    if (state.token && state.modules?.accounting) void load();
-  }, [state.token, state.modules?.accounting]);
+    if (offlineContext && state.modules?.accounting) void load();
+  }, [offlineContext, state.modules?.accounting]);
+
+  useEffect(() => {
+    setEntryForm((current) => ({ ...current, debitAccountId: current.debitAccountId || accounts[0]?.id || "", creditAccountId: current.creditAccountId || accounts[1]?.id || "" }));
+  }, [accounts]);
+
+  useEffect(() => {
+    setMovementForm((current) => ({ ...current, cashRegisterId: current.cashRegisterId || registers[0]?.id || "" }));
+  }, [registers]);
 
   async function load() {
-    const [nextAccounts, nextEntries, nextRegisters, nextMovements, nextPayments, nextExpenses] = await Promise.all([
-      adminRequest<Account[]>("/api/owner/ops/accounts", state.token),
-      adminRequest<JournalEntry[]>("/api/owner/ops/journal-entries", state.token),
-      adminRequest<CashRegister[]>("/api/owner/ops/cash/registers", state.token),
-      adminRequest<CashMovement[]>("/api/owner/ops/cash/movements", state.token),
-      adminRequest<OperationalPayment[]>("/api/owner/ops/payments", state.token).catch(() => []),
-      adminRequest<Expense[]>("/api/owner/ops/expenses", state.token).catch(() => [])
-    ]);
-    setAccounts(nextAccounts);
-    setEntries(nextEntries);
-    setRegisters(nextRegisters);
-    setMovements(nextMovements);
-    setPayments(nextPayments);
-    setExpenses(nextExpenses);
-    setEntryForm((current) => ({ ...current, debitAccountId: current.debitAccountId || nextAccounts[0]?.id || "", creditAccountId: current.creditAccountId || nextAccounts[1]?.id || "" }));
-    setMovementForm((current) => ({ ...current, cashRegisterId: current.cashRegisterId || nextRegisters[0]?.id || "" }));
+    if (!offlineContext) return;
+    hydrateFinancialHistory(offlineContext);
+  }
+
+  async function refreshHistory() {
+    if (!offlineContext) return;
+    await refreshFinancialHistory(offlineContext);
   }
 
   async function addAccount(event: FormEvent<HTMLFormElement>) {
@@ -124,7 +147,7 @@ export function AccountingOpsPage() {
       await adminRequest("/api/owner/ops/accounts", state.token, { method: "POST", body: JSON.stringify(accountForm) });
       setAccountForm({ code: "", name: "", type: "ASSET", isActive: true });
       setAccountFormOpen(false);
-      await load();
+      await refreshHistory();
     });
   }
 
@@ -149,7 +172,7 @@ export function AccountingOpsPage() {
         })
       });
       setEntryForm({ ...entryForm, amount: 0, memo: "" });
-      await load();
+      await refreshHistory();
     });
   }
 
@@ -159,36 +182,52 @@ export function AccountingOpsPage() {
       await adminRequest("/api/owner/ops/cash/registers", state.token, { method: "POST", body: JSON.stringify(cashForm) });
       setCashForm({ name: "", openingBalance: 0 });
       setCashRegisterFormOpen(false);
-      await load();
+      await refreshHistory();
     });
   }
 
   async function addMovement(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await run(state, async () => {
-      await adminRequest("/api/owner/ops/cash/movements", state.token, { method: "POST", body: JSON.stringify({ ...movementForm, referenceType: "MANUAL", referenceId: "manual" }) });
-      setMovementForm({ ...movementForm, amount: 0, note: "" });
-      await load();
+    if (!movementForm.cashRegisterId) {
+      state.setMessage("اختر الصندوق.");
+      return;
+    }
+    if (movementForm.amount <= 0) {
+      state.setMessage("أدخل مبلغًا صحيحًا.");
+      return;
+    }
+    await movementGuard.current.run(async () => {
+      setMovementBusy(true);
+      try {
+        await run(state, async () => {
+          if (!offlineContext) throw new Error("تعذر تجهيز التخزين المحلي للحركة.");
+          await createLocalCashMovement(offlineContext, { ...movementForm, referenceType: "MANUAL", referenceId: "manual" });
+          setMovementForm({ ...movementForm, amount: 0, note: "" });
+        }, "تم تسجيل حركة الصندوق على الجهاز — بانتظار المزامنة");
+      } finally {
+        setMovementBusy(false);
+      }
     });
   }
 
   const totalDebit = entryForm.amount;
   const totalCredit = entryForm.amount;
   const currency = state.restaurant?.currency;
-  const rangedPayments = payments.filter((payment) => isWithinDateRange(payment.paidAt || payment.createdAt, dateRange.from, dateRange.to));
-  const rangedExpenses = expenses.filter((expense) => isWithinDateRange(expense.paidAt || expense.createdAt, dateRange.from, dateRange.to));
-  const rangedMovements = movements.filter((movement) => isWithinDateRange(movement.createdAt, dateRange.from, dateRange.to));
-  const rangedEntries = entries.filter((entry) => isWithinDateRange(entry.postedAt || entry.createdAt, dateRange.from, dateRange.to));
-  const receiptsTotal = sumAmounts(rangedPayments);
-  const expensesTotal = sumAmounts(rangedExpenses);
+  const rangedPayments = useMemo(() => payments.filter((payment) => isWithinDateRange(payment.paidAt || payment.createdAt, dateRange.from, dateRange.to)), [dateRange.from, dateRange.to, payments]);
+  const rangedExpenses = useMemo(() => expenses.filter((expense) => isWithinDateRange(expense.paidAt || expense.createdAt, dateRange.from, dateRange.to)), [dateRange.from, dateRange.to, expenses]);
+  const rangedMovements = useMemo(() => movements.filter((movement) => isWithinDateRange(movement.createdAt, dateRange.from, dateRange.to)), [dateRange.from, dateRange.to, movements]);
+  const rangedEntries = useMemo(() => entries.filter((entry) => isWithinDateRange(entry.postedAt || entry.createdAt, dateRange.from, dateRange.to)), [dateRange.from, dateRange.to, entries]);
+  const receiptsTotal = useMemo(() => sumAmounts(rangedPayments), [rangedPayments]);
+  const expensesTotal = useMemo(() => sumAmounts(rangedExpenses), [rangedExpenses]);
   const netReceipts = receiptsTotal - expensesTotal;
-  const periodCashIn = sumAmounts(rangedMovements.filter((movement) => movement.type === "IN"));
-  const periodCashOut = sumAmounts(rangedMovements.filter((movement) => movement.type === "OUT"));
-  const totalCashBalance = registers.reduce((sum, register) => sum + numberValue(register.currentBalance), 0);
-  const cashSeries = buildCashSeries(rangedMovements, dateRange);
-  const paymentBreakdown = buildPaymentBreakdown(rangedPayments);
-  const recentMovements = [...rangedMovements].sort(sortByCreatedAtDesc).slice(0, 5);
-  const recentEntries = [...rangedEntries].sort(sortByCreatedAtDesc).slice(0, 5);
+  const periodCashIn = useMemo(() => sumAmounts(rangedMovements.filter((movement) => movement.type === "IN")), [rangedMovements]);
+  const periodCashOut = useMemo(() => sumAmounts(rangedMovements.filter((movement) => movement.type === "OUT")), [rangedMovements]);
+  const estimatedCashBalance = useMemo(() => registers.reduce((sum, register) => sum + numberValue(register.currentBalance), 0), [registers]);
+  const confirmedCashBalance = estimatedCashBalance - pendingCashEffect;
+  const cashSeries = useMemo(() => buildCashSeries(rangedMovements, dateRange), [dateRange, rangedMovements]);
+  const paymentBreakdown = useMemo(() => buildPaymentBreakdown(rangedPayments), [rangedPayments]);
+  const recentMovements = useMemo(() => [...rangedMovements].sort(sortByCreatedAtDesc).slice(0, 5), [rangedMovements]);
+  const recentEntries = useMemo(() => [...rangedEntries].sort(sortByCreatedAtDesc).slice(0, 5), [rangedEntries]);
   const totalPeriodRecords = rangedPayments.length + rangedExpenses.length + rangedMovements.length + rangedEntries.length;
   const financialRecords = useMemo<FinancialRecordRow[]>(() => {
     const paymentRows = rangedPayments.map((payment) => ({
@@ -244,7 +283,7 @@ export function AccountingOpsPage() {
   }, [rangedPayments, rangedExpenses, rangedMovements, rangedEntries, registers]);
 
   return (
-    <OpsShell title="المحاسبة" eyebrow="الحسابات والقيود والصندوق" module="accounting" state={state} onRefresh={() => void Promise.all([state.loadRestaurant(), load()])}>
+    <OpsShell title="المحاسبة" eyebrow="الحسابات والقيود والصندوق" module="accounting" state={state} onRefresh={() => void Promise.all([state.loadRestaurant(), refreshHistory()])}>
       <div className="grid gap-4">
         <AppPageHeader
           title="المحاسبة"
@@ -284,9 +323,16 @@ export function AccountingOpsPage() {
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <AccountingSummary title="إجمالي الصناديق" value={money(totalCashBalance, currency)} />
+          <AccountingSummary title={pendingCashEffect ? "الصناديق المؤكدة" : "إجمالي الصناديق"} value={money(confirmedCashBalance, currency)} />
+          {pendingCashEffect ? <AccountingSummary title="تأثير محلي بانتظار المزامنة" value={money(pendingCashEffect, currency)} tone={pendingCashEffect >= 0 ? "success" : "danger"} /> : null}
+          {pendingCashEffect ? <AccountingSummary title="الرصيد المحلي التقديري" value={money(estimatedCashBalance, currency)} /> : null}
           <AccountingSummary title="إجمالي القيود" value={formatInteger(entries.length)} />
         </div>
+        {pendingCashEffect ? (
+          <p className="rounded-app-md border border-app-warning-soft bg-app-warning-soft p-3 text-app-body font-semibold text-app-warning">
+            أرصدة الصناديق المحلية تتضمن حركات مالية بانتظار المزامنة. الرصيد التقديري مفيد للتشغيل المحلي، لكنه ليس رصيدًا مؤكدًا حتى تكتمل المزامنة.
+          </p>
+        ) : null}
 
         <nav className="flex gap-2 overflow-x-auto rounded-app-lg border border-app-border bg-app-surface p-2" aria-label="أقسام المحاسبة">
           {accountingTabs.map((item) => (
@@ -341,6 +387,8 @@ export function AccountingOpsPage() {
             movementForm={movementForm}
             setMovementForm={setMovementForm}
             currency={currency}
+            pendingCashEffect={pendingCashEffect}
+            movementBusy={movementBusy}
             onSubmit={addMovement}
             onAddRegister={() => setCashRegisterFormOpen(true)}
           />
@@ -613,14 +661,18 @@ function CashTab({
   movementForm,
   setMovementForm,
   currency,
+  pendingCashEffect,
+  movementBusy,
   onSubmit,
   onAddRegister
 }: {
   registers: CashRegister[];
-  rangedMovements: CashMovement[];
+  rangedMovements: LocalCashMovement[];
   movementForm: MovementForm;
   setMovementForm: (form: MovementForm) => void;
   currency?: string;
+  pendingCashEffect: number;
+  movementBusy: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onAddRegister: () => void;
 }) {
@@ -644,11 +696,16 @@ function CashTab({
           <AppFieldShell label="ملاحظة">
             <AppInput value={movementForm.note} onChange={(event) => setMovementForm({ ...movementForm, note: event.target.value })} />
           </AppFieldShell>
-          <AppButton type="submit" disabled={!movementForm.cashRegisterId}>تسجيل</AppButton>
+          <AppButton type="submit" loading={movementBusy} disabled={!movementForm.cashRegisterId || movementBusy}>تسجيل</AppButton>
         </form>
       </AppSurface>
 
       <AppSurface title="الصناديق" action={<AppButton type="button" onClick={onAddRegister}>فتح صندوق</AppButton>}>
+        {pendingCashEffect ? (
+          <p className="mb-3 rounded-app-md border border-app-warning-soft bg-app-warning-soft px-3 py-2 text-app-helper font-semibold text-app-warning">
+            تظهر الأرصدة أدناه كرصد محلي تقديري لأنها تشمل حركات بانتظار المزامنة.
+          </p>
+        ) : null}
         {registers.length ? (
           <div className="grid gap-2">
             {registers.map((register) => (
@@ -668,10 +725,13 @@ function CashTab({
         {rangedMovements.length ? (
           <div className="grid gap-2">
             {rangedMovements.map((movement) => (
-              <div key={movement.id} className="grid gap-2 rounded-app-md border border-app-border bg-app-surface-muted p-3 text-app-body md:grid-cols-[160px_120px_1fr_160px] md:items-center">
+              <div key={movement.id} className="grid gap-2 rounded-app-md border border-app-border bg-app-surface-muted p-3 text-app-body md:grid-cols-[160px_120px_minmax(0,1fr)_160px] md:items-center">
                 <span className="text-app-muted">{formatFinancialDate(movement.createdAt)}</span>
                 <AppBadge variant={movement.type === "IN" ? "success" : "danger"}>{movement.type === "IN" ? "دخول" : "خروج"}</AppBadge>
-                <span className="min-w-0 truncate text-app-muted">{movement.note || movement.referenceType}</span>
+                <span className="flex min-w-0 flex-wrap items-center gap-2 text-app-muted">
+                  <span className="min-w-0 truncate">{movement.note || movement.referenceType}</span>
+                  <CashMovementSyncBadge movement={movement} />
+                </span>
                 <span className={cn("font-semibold", movement.type === "IN" ? "text-app-success" : "text-app-danger")}>{money(movement.amount, currency)}</span>
               </div>
             ))}
@@ -698,6 +758,14 @@ function FinancialFact({ label, value, tone = "neutral" }: { label: string; valu
       <p className={cn("mt-1 truncate font-semibold", tone === "success" ? "text-app-success" : tone === "danger" ? "text-app-danger" : "text-app-ink")}>{value}</p>
     </div>
   );
+}
+
+function CashMovementSyncBadge({ movement }: { movement: LocalCashMovement }) {
+  if (!movement.syncStatus || movement.syncStatus === "synced") return null;
+  if (movement.syncStatus === "pending") return <AppBadge variant="warning">بانتظار المزامنة</AppBadge>;
+  if (movement.syncStatus === "syncing") return <AppBadge variant="primary">تتم المزامنة</AppBadge>;
+  if (movement.syncStatus === "conflict") return <AppBadge variant="danger">تعارض</AppBadge>;
+  return <AppBadge variant="danger">{movement.syncErrorMessage || "فشلت المزامنة"}</AppBadge>;
 }
 
 function CashMovementBars({ data, currency }: { data: ReturnType<typeof buildCashSeries>; currency?: string }) {

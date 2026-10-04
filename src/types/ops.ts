@@ -48,6 +48,11 @@ export type OpsOrder = {
   orderedAt?: string;
   invoiceId: string;
   paymentId: string;
+  version?: number;
+  inventoryDeductedAt?: string;
+  completedAt?: string;
+  cancelledAt?: string;
+  closedById?: string;
   createdAt?: string;
   updatedAt?: string;
 };

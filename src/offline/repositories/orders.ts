@@ -1,7 +1,8 @@
-import { adminRequest } from "@/lib/api";
+import { adminBackgroundRequest } from "@/lib/api";
 import type { CashMovement, Invoice, JournalEntry, OperationalPayment, OpsOrder, OpsOrderLine, OpsTable, PaymentMethod } from "@/types/ops";
 import { offlineDb } from "../db";
 import { createLocalEntityId, getDeviceId } from "../device";
+import { shouldProtectHydratedRecord } from "../hydration";
 import { queueOperation } from "../outbox";
 import type { LocalOrder } from "../schema";
 import { startSync } from "../sync-engine";
@@ -40,20 +41,53 @@ export type CompleteOrderInput = {
   note: string;
 };
 
+const orderRefreshes = new Map<string, Promise<OpsOrder[]>>();
+
 export async function hydrateOrders(context: OfflineContext) {
+  void refreshOrders(context);
+  return listLocalOrders(context.tenantId);
+}
+
+export async function refreshOrders(context: OfflineContext) {
+  const current = orderRefreshes.get(context.tenantId);
+  if (current) return current;
+
+  const refresh = pullOrders(context)
+    .catch(() => listLocalOrders(context.tenantId))
+    .finally(() => {
+      orderRefreshes.delete(context.tenantId);
+    });
+  orderRefreshes.set(context.tenantId, refresh);
+  return refresh;
+}
+
+async function pullOrders(context: OfflineContext) {
   try {
-    const remoteOrders = await adminRequest<OpsOrder[]>("/api/owner/ops/orders", context.token);
+    const remoteOrders = await adminBackgroundRequest<OpsOrder[]>("/api/owner/ops/orders", context.token);
     const now = new Date().toISOString();
     const deviceId = await getDeviceId();
-    await offlineDb.orders.bulkPut(remoteOrders.map((order) => ({
-      ...order,
-      restaurantId: context.tenantId,
-      deviceId,
-      syncStatus: "synced",
-      lastSyncedAt: now,
-      version: versionFromDates(order.updatedAt, order.createdAt)
-    })));
-    return remoteOrders;
+    await offlineDb.transaction("rw", offlineDb.orders, offlineDb.syncQueue, offlineDb.syncConflicts, async () => {
+      for (const order of remoteOrders) {
+        const local = await offlineDb.orders.get(order.id);
+        const protectedLocal = await shouldProtectHydratedRecord({
+          tenantId: context.tenantId,
+          entityType: "order",
+          entityId: order.id,
+          local
+        });
+        if (protectedLocal) continue;
+
+        await offlineDb.orders.put({
+          ...order,
+          restaurantId: context.tenantId,
+          deviceId,
+          syncStatus: "synced",
+          lastSyncedAt: now,
+          version: orderVersion(order)
+        });
+      }
+    });
+    return listLocalOrders(context.tenantId);
   } catch {
     return listLocalOrders(context.tenantId);
   }
@@ -169,7 +203,7 @@ export async function updateLocalOrder(context: OfflineContext, orderId: string,
       entityId: orderId,
       action: "update",
       payload: input,
-      baseVersion: current.version,
+      baseVersion: localOrderBaseVersion(current),
       tenantId: context.tenantId,
       userId: context.userId
     });
@@ -199,6 +233,9 @@ export async function completeLocalOrder(context: OfflineContext, orderId: strin
     paymentMethod: input.paymentMethod,
     invoiceId,
     paymentId,
+    completedAt: now,
+    inventoryDeductedAt: "",
+    closedById: context.userId,
     updatedAt: now,
     syncStatus: "pending"
   };
@@ -222,7 +259,7 @@ export async function completeLocalOrder(context: OfflineContext, orderId: strin
       entityId: orderId,
       action: "completeOrder",
       payload: input,
-      baseVersion: current.version,
+      baseVersion: localOrderBaseVersion(current),
       tenantId: context.tenantId,
       userId: context.userId
     });
@@ -252,7 +289,7 @@ export async function cancelLocalOrder(context: OfflineContext, orderId: string,
       entityId: orderId,
       action: "cancelOrder",
       payload: { reason },
-      baseVersion: current.version,
+      baseVersion: localOrderBaseVersion(current),
       tenantId: context.tenantId,
       userId: context.userId
     });
@@ -419,6 +456,18 @@ function defaultOrderName(tableName: string, orderedAt: string) {
     ? new Date().toISOString().slice(11, 16)
     : `${String(parsed.getHours()).padStart(2, "0")}:${String(parsed.getMinutes()).padStart(2, "0")}`;
   return `${tableName || "طلب"} - ${time}`;
+}
+
+function orderVersion(order: OpsOrder) {
+  const explicitVersion = Number(order.version);
+  if (Number.isFinite(explicitVersion) && explicitVersion > 0) return explicitVersion;
+  return versionFromDates(order.updatedAt, order.createdAt);
+}
+
+function localOrderBaseVersion(order: LocalOrder) {
+  const explicitVersion = Number(order.version);
+  if (Number.isFinite(explicitVersion) && explicitVersion >= 0) return explicitVersion;
+  return versionFromDates(order.updatedAt, order.createdAt);
 }
 
 function versionFromDates(updatedAt?: string, createdAt?: string) {

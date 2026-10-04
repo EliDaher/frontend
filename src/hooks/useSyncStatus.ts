@@ -7,6 +7,7 @@ import { syncQueueSummary, type SyncQueueIssue } from "@/offline/outbox";
 export type SyncStatusView = {
   browserOnline: boolean;
   apiReachable: boolean;
+  authRequired: boolean;
   pending: number;
   syncing: number;
   failed: number;
@@ -19,6 +20,7 @@ export type SyncStatusView = {
 const initialStatus: SyncStatusView = {
   browserOnline: true,
   apiReachable: true,
+  authRequired: false,
   pending: 0,
   syncing: 0,
   failed: 0,
@@ -33,18 +35,37 @@ export function useSyncStatus(tenantId?: string, token?: string) {
 
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false;
+    let queued = false;
 
     async function refresh() {
-      const [connectivity, queue] = await Promise.all([
-        checkApiReachable(token),
-        syncQueueSummary(tenantId)
-      ]);
-      if (cancelled) return;
-      setStatus({
-        browserOnline: connectivity.browserOnline,
-        apiReachable: connectivity.apiReachable,
-        ...queue
-      });
+      if (inFlight) {
+        queued = true;
+        return;
+      }
+      inFlight = true;
+      try {
+        const [connectivity, queue] = await Promise.all([
+          checkApiReachable(token),
+          syncQueueSummary(tenantId)
+        ]);
+        if (!cancelled) {
+          setStatus({
+            browserOnline: connectivity.browserOnline,
+            apiReachable: connectivity.apiReachable,
+            authRequired: connectivity.authRequired,
+            ...queue
+          });
+        }
+      } catch {
+        // Status is advisory; stale status is better than surfacing a background polling error.
+      } finally {
+        inFlight = false;
+      }
+      if (queued && !cancelled) {
+        queued = false;
+        void refresh();
+      }
     }
 
     void refresh();

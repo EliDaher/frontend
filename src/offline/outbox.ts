@@ -62,15 +62,16 @@ export async function queueOperation(input: QueueOperationInput) {
 export async function pendingOperations(tenantId: string, limit = 25) {
   await recoverStaleSyncingOperations(tenantId);
   const now = new Date().toISOString();
-  const items = await offlineDb.syncQueue
-    .where("tenantId")
-    .equals(tenantId)
+  const [pending, failed] = await Promise.all([
+    offlineDb.syncQueue.where("[tenantId+status]").equals([tenantId, "pending"]).toArray(),
+    offlineDb.syncQueue.where("[tenantId+status]").equals([tenantId, "failed"]).toArray()
+  ]);
+  const items = [...pending, ...failed]
     .filter((item) => {
-      if (!["pending", "failed"].includes(item.status)) return false;
       if (item.status === "failed" && item.error?.retryable === false) return false;
       return !item.nextAttemptAt || item.nextAttemptAt <= now;
     })
-    .sortBy("createdAt");
+    .sort((first, second) => first.createdAt.localeCompare(second.createdAt));
 
   const dependencyIds = [...new Set(items.flatMap((item) => item.dependencyIds))];
   const dependencies = dependencyIds.length ? await offlineDb.syncQueue.bulkGet(dependencyIds) : [];
@@ -113,10 +114,9 @@ export async function syncQueueIssues(tenantId?: string, limit = 8): Promise<Syn
 
 export async function retryFailedOperations(tenantId?: string) {
   if (tenantId) await recoverStaleSyncingOperations(tenantId, true);
-  const collection = tenantId ? offlineDb.syncQueue.where("tenantId").equals(tenantId) : offlineDb.syncQueue.toCollection();
-  const items = await collection
-    .filter((item) => item.status === "failed" && item.error?.retryable !== false)
-    .toArray();
+  const items = tenantId
+    ? await offlineDb.syncQueue.where("[tenantId+status]").equals([tenantId, "failed"]).filter((item) => item.error?.retryable !== false).toArray()
+    : await offlineDb.syncQueue.where("status").equals("failed").filter((item) => item.error?.retryable !== false).toArray();
   if (!items.length) return 0;
 
   await offlineDb.syncQueue.bulkPut(items.map((item) => ({
@@ -130,9 +130,9 @@ export async function retryFailedOperations(tenantId?: string) {
 
 export async function recoverStaleSyncingOperations(tenantId: string, force = false) {
   const items = await offlineDb.syncQueue
-    .where("tenantId")
-    .equals(tenantId)
-    .filter((item) => item.status === "syncing" && (force || isStaleSyncing(item)))
+    .where("[tenantId+status]")
+    .equals([tenantId, "syncing"])
+    .filter((item) => force || isStaleSyncing(item))
     .toArray();
   if (!items.length) return 0;
 
@@ -165,10 +165,9 @@ export function nextRetryTime(retryCount: number) {
 
 async function unsyncedDependenciesFor(input: QueueOperationInput) {
   const existing = await offlineDb.syncQueue
-    .where("tenantId")
-    .equals(input.tenantId)
+    .where("[tenantId+entityType+entityId]")
+    .equals([input.tenantId, input.entityType, input.entityId])
     .filter((item) => {
-      if (item.entityType !== input.entityType || item.entityId !== input.entityId) return false;
       return item.status !== "synced";
     })
     .toArray();

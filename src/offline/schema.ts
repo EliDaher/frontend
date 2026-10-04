@@ -51,7 +51,11 @@ export type LocalSyncFields = {
   deletedAt?: string;
   version?: number;
   syncStatus?: SyncStatus;
+  syncErrorCode?: string;
+  syncErrorMessage?: string;
   lastSyncedAt?: string;
+  reconciliationWarning?: string;
+  localTotalBeforeReconcile?: number;
 };
 
 export type LocalRestaurant = Restaurant & Partial<LocalSyncFields>;

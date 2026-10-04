@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AppBadge,
   AppButton,
@@ -17,6 +17,11 @@ import {
 } from "@/components/shared";
 import { adminRequest } from "@/lib/api";
 import { formatInteger } from "@/lib/format";
+import { useLiveQuery } from "@/offline/hooks/useLiveQuery";
+import type { PendingInventoryEffects } from "@/offline/inventory-cache-rules";
+import { getPendingLocalInventoryEffects, hydrateInventory, listLocalInventoryItems, listLocalInventoryTransactions, refreshInventory } from "@/offline/repositories/inventory";
+import { listLocalMenuItems, listLocalRecipeIngredients } from "@/offline/repositories/reference-data";
+import type { OfflineContext } from "@/offline/repositories/tables";
 import type { MenuItem } from "@/types/menu";
 import type { InventoryItem, InventoryTransaction, InventoryTransactionType, RecipeDraftLine, RecipeIngredient } from "@/types/ops";
 import { money, OpsShell, useOpsPage } from "./OpsShared";
@@ -44,10 +49,6 @@ const movementTypes: InventoryTransactionType[] = ["IN", "OUT", "ADJUST", "REVER
 
 export function InventoryOpsPage() {
   const state = useOpsPage("inventory");
-  const [items, setItems] = useState<InventoryItem[]>([]);
-  const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
-  const [recipes, setRecipes] = useState<RecipeIngredient[]>([]);
-  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [query, setQuery] = useState("");
   const [editingId, setEditingId] = useState("");
   const [formOpen, setFormOpen] = useState(false);
@@ -56,26 +57,53 @@ export function InventoryOpsPage() {
   const [move, setMove] = useState<StockMovementForm>({ inventoryItemId: "", type: "IN", quantity: 0, reason: "" });
   const [recipe, setRecipe] = useState({ menuItemId: "", inventoryItemId: "", quantity: 1, unit: "" });
   const [recipeDraft, setRecipeDraft] = useState<RecipeDraftLine[]>([]);
+  const tenantId = state.restaurant?.id ?? "";
+  const offlineContext = useMemo<OfflineContext | null>(() => {
+    if (!state.token || !tenantId) return null;
+    return { token: state.token, tenantId, userId: state.restaurant?.ownerUserId ?? "owner" };
+  }, [state.restaurant?.ownerUserId, state.token, tenantId]);
+  const { value: items } = useLiveQuery(() => tenantId ? listLocalInventoryItems(tenantId) : Promise.resolve([]), [] as InventoryItem[], [tenantId]);
+  const { value: transactions } = useLiveQuery(() => tenantId ? listLocalInventoryTransactions(tenantId) : Promise.resolve([]), [] as InventoryTransaction[], [tenantId]);
+  const { value: recipes } = useLiveQuery(() => tenantId ? listLocalRecipeIngredients(tenantId) : Promise.resolve([]), [] as RecipeIngredient[], [tenantId]);
+  const { value: menuItems } = useLiveQuery(() => tenantId ? listLocalMenuItems(tenantId) : Promise.resolve([]), [] as MenuItem[], [tenantId]);
+  const { value: pendingInventoryEffects } = useLiveQuery(
+    () => tenantId ? getPendingLocalInventoryEffects(tenantId) : Promise.resolve(emptyPendingInventoryEffects()),
+    emptyPendingInventoryEffects(),
+    [tenantId]
+  );
 
   useEffect(() => {
-    if (state.token && state.modules?.inventory) void load();
-  }, [state.token, state.modules?.inventory]);
+    if (offlineContext && state.modules?.inventory) load();
+  }, [offlineContext, state.modules?.inventory]);
 
-  async function load() {
-    const [nextItems, nextTransactions, nextRecipes, nextMenuItems] = await Promise.all([
-      adminRequest<InventoryItem[]>("/api/owner/ops/inventory/items", state.token),
-      adminRequest<InventoryTransaction[]>("/api/owner/ops/inventory/transactions", state.token),
-      adminRequest<RecipeIngredient[]>("/api/owner/ops/recipes", state.token),
-      adminRequest<MenuItem[]>("/api/owner/items", state.token)
-    ]);
-    setItems(nextItems);
-    setTransactions(nextTransactions);
-    setRecipes(nextRecipes);
-    setMenuItems(nextMenuItems);
-    setMove((current) => ({ ...current, inventoryItemId: current.inventoryItemId || nextItems[0]?.id || "" }));
-    setRecipe((current) => ({ ...current, menuItemId: current.menuItemId || nextMenuItems[0]?.id || "", inventoryItemId: current.inventoryItemId || nextItems[0]?.id || "" }));
-    const selectedMenuItemId = recipe.menuItemId || nextMenuItems[0]?.id || "";
-    setRecipeDraft(recipeDraftForMenuItem(nextRecipes, nextItems, selectedMenuItemId));
+  useEffect(() => {
+    setMove((current) => {
+      if (items.some((item) => item.id === current.inventoryItemId)) return current;
+      return { ...current, inventoryItemId: items[0]?.id || "" };
+    });
+  }, [items]);
+
+  useEffect(() => {
+    setRecipe((current) => {
+      const menuItemId = menuItems.some((item) => item.id === current.menuItemId) ? current.menuItemId : menuItems[0]?.id || "";
+      const inventoryItemId = items.some((item) => item.id === current.inventoryItemId) ? current.inventoryItemId : items[0]?.id || "";
+      return menuItemId === current.menuItemId && inventoryItemId === current.inventoryItemId ? current : { ...current, menuItemId, inventoryItemId };
+    });
+  }, [items, menuItems]);
+
+  useEffect(() => {
+    const selectedMenuItemId = recipe.menuItemId || menuItems[0]?.id || "";
+    setRecipeDraft(recipeDraftForMenuItem(recipes, items, selectedMenuItemId));
+  }, [items, menuItems, recipe.menuItemId, recipes]);
+
+  function load() {
+    if (!offlineContext) return;
+    hydrateInventory(offlineContext);
+  }
+
+  async function refreshInventoryData() {
+    if (!offlineContext) return;
+    await refreshInventory(offlineContext);
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -86,7 +114,7 @@ export function InventoryOpsPage() {
       setEditingId("");
       setForm(emptyInventoryForm());
       setFormOpen(false);
-      await load();
+      await refreshInventoryData();
     });
   }
 
@@ -95,7 +123,7 @@ export function InventoryOpsPage() {
     await run(state, async () => {
       await adminRequest("/api/owner/ops/inventory/transactions", state.token, { method: "POST", body: JSON.stringify({ ...move, referenceType: "MANUAL", referenceId: "manual" }) });
       setMove({ ...move, quantity: 0, reason: "" });
-      await load();
+      await refreshInventoryData();
     });
   }
 
@@ -109,7 +137,7 @@ export function InventoryOpsPage() {
           ingredients: recipeDraft.filter((line) => line.inventoryItemId && line.quantity > 0)
         })
       });
-      await load();
+      await refreshInventoryData();
     });
   }
 
@@ -139,7 +167,7 @@ export function InventoryOpsPage() {
     await run(state, async () => {
       await adminRequest(`/api/owner/ops/inventory/items/${id}`, state.token, { method: "DELETE" });
       setPendingDeleteItem(null);
-      await load();
+      await refreshInventoryData();
     });
   }
 
@@ -164,12 +192,13 @@ export function InventoryOpsPage() {
     setFormOpen(true);
   }
 
-  const filtered = items.filter((item) => `${item.name} ${item.category}`.toLowerCase().includes(query.toLowerCase()));
-  const lowStockCount = items.filter(isLowStock).length;
-  const activeCount = items.filter((item) => item.isActive).length;
+  const normalizedQuery = query.toLowerCase();
+  const filtered = useMemo(() => items.filter((item) => `${item.name} ${item.category}`.toLowerCase().includes(normalizedQuery)), [items, normalizedQuery]);
+  const lowStockCount = useMemo(() => items.filter(isLowStock).length, [items]);
+  const activeCount = useMemo(() => items.filter((item) => item.isActive).length, [items]);
 
   return (
-    <OpsShell title="المخزون" eyebrow="المواد والحركات" module="inventory" state={state} onRefresh={() => void Promise.all([state.loadRestaurant(), load()])}>
+    <OpsShell title="المخزون" eyebrow="المواد والحركات" module="inventory" state={state} onRefresh={() => void Promise.all([state.loadRestaurant(), refreshInventoryData()])}>
       <div className="grid gap-4">
         <AppPageHeader
           title="المخزون"
@@ -180,9 +209,11 @@ export function InventoryOpsPage() {
               <AppBadge variant="neutral">{formatInteger(filtered.length)} مادة</AppBadge>
               <AppBadge variant={lowStockCount ? "warning" : "success"}>{formatInteger(lowStockCount)} منخفض</AppBadge>
               <AppBadge variant="primary">{formatInteger(activeCount)} نشط</AppBadge>
+              {pendingInventoryEffects.pendingCompletionCount ? <AppBadge variant="warning">{formatInteger(pendingInventoryEffects.pendingCompletionCount)} خصم محلي</AppBadge> : null}
             </>
           )}
         />
+        <InventoryCacheNotice effects={pendingInventoryEffects} />
 
         <div className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
           <div className="grid content-start gap-4">
@@ -278,7 +309,9 @@ export function InventoryOpsPage() {
                               <p className="font-semibold text-app-ink">{item.name}</p>
                               <p className="mt-1 text-app-helper text-app-muted">{item.category}</p>
                             </td>
-                            <td className="border-b border-app-border px-3 py-3 text-lg font-semibold text-app-ink">{item.currentQuantity}</td>
+                            <td className="border-b border-app-border px-3 py-3">
+                              <InventoryQuantity item={item} pendingDeduction={pendingInventoryEffects.byInventoryItemId[item.id] ?? 0} />
+                            </td>
                             <td className="border-b border-app-border px-3 py-3 text-app-muted">{item.unit}</td>
                             <td className="border-b border-app-border px-3 py-3 text-app-ink">{money(item.averageCost, state.restaurant?.currency)}</td>
                             <td className="border-b border-app-border px-3 py-3"><InventoryStatusBadge item={item} /></td>
@@ -293,7 +326,7 @@ export function InventoryOpsPage() {
 
                   <div className="mt-4 grid gap-2 md:hidden">
                     {filtered.map((item) => (
-                      <InventoryMobileRow key={item.id} item={item} currency={state.restaurant?.currency} onEdit={() => edit(item)} onDelete={() => setPendingDeleteItem(item)} />
+                      <InventoryMobileRow key={item.id} item={item} currency={state.restaurant?.currency} pendingDeduction={pendingInventoryEffects.byInventoryItemId[item.id] ?? 0} onEdit={() => edit(item)} onDelete={() => setPendingDeleteItem(item)} />
                     ))}
                   </div>
                 </>
@@ -372,7 +405,29 @@ export function InventoryOpsPage() {
   );
 }
 
-function InventoryMobileRow({ item, currency, onEdit, onDelete }: { item: InventoryItem; currency?: string; onEdit: () => void; onDelete: () => void }) {
+function InventoryCacheNotice({ effects }: { effects: PendingInventoryEffects }) {
+  if (!effects.pendingCompletionCount) return null;
+
+  const hasUnknown = effects.unknownOrderCount > 0 || effects.unknownRecipeCount > 0;
+  return (
+    <div className="rounded-app-md border border-app-warning-soft bg-app-warning-soft p-3 text-app-body font-semibold text-app-warning">
+      المخزون المعروض هو آخر رصيد مؤكد محفوظ. توجد عمليات إنهاء محلية بانتظار المزامنة
+      {Object.keys(effects.byInventoryItemId).length ? "، وتم إظهار الخصم المتوقع للمواد التي يمكن حسابها من الوصفات المحفوظة." : "."}
+      {hasUnknown ? " بعض التأثيرات لا يمكن حسابها محليًا بسبب نقص بيانات الطلب أو الوصفة." : null}
+    </div>
+  );
+}
+
+function InventoryQuantity({ item, pendingDeduction }: { item: InventoryItem; pendingDeduction: number }) {
+  return (
+    <div className="grid gap-1">
+      <p className="text-lg font-semibold text-app-ink">{item.currentQuantity}</p>
+      {pendingDeduction > 0 ? <p className="text-app-helper font-semibold text-app-warning">خصم محلي متوقع: -{formatQuantity(pendingDeduction)} {item.unit}</p> : null}
+    </div>
+  );
+}
+
+function InventoryMobileRow({ item, currency, pendingDeduction, onEdit, onDelete }: { item: InventoryItem; currency?: string; pendingDeduction: number; onEdit: () => void; onDelete: () => void }) {
   return (
     <article className="rounded-app-md border border-app-border bg-app-surface p-3">
       <div className="flex items-start justify-between gap-3">
@@ -386,6 +441,7 @@ function InventoryMobileRow({ item, currency, onEdit, onDelete }: { item: Invent
         <InventoryFact label="الكمية" value={`${item.currentQuantity} ${item.unit}`} strong />
         <InventoryFact label="التكلفة" value={money(item.averageCost, currency)} />
       </div>
+      {pendingDeduction > 0 ? <p className="mt-2 text-app-helper font-semibold text-app-warning">خصم محلي متوقع: -{formatQuantity(pendingDeduction)} {item.unit}</p> : null}
       <InventoryRowActions onEdit={onEdit} onDelete={onDelete} className="mt-3" />
     </article>
   );
@@ -423,6 +479,14 @@ function movementVariant(type: InventoryTransactionType): "neutral" | "primary" 
 
 function isLowStock(item: InventoryItem) {
   return item.currentQuantity <= item.minimumQuantity;
+}
+
+function emptyPendingInventoryEffects(): PendingInventoryEffects {
+  return { byInventoryItemId: {}, pendingCompletionCount: 0, unknownOrderCount: 0, unknownRecipeCount: 0 };
+}
+
+function formatQuantity(value: number) {
+  return Number.isInteger(value) ? formatInteger(value) : value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 function emptyInventoryForm(): InventoryForm {

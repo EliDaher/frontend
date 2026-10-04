@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AppBadge,
   AppButton,
@@ -18,6 +18,11 @@ import {
 } from "@/components/shared";
 import { adminRequest } from "@/lib/api";
 import { formatInteger } from "@/lib/format";
+import { createActionGuard } from "@/offline/action-guard";
+import { useLiveQuery } from "@/offline/hooks/useLiveQuery";
+import { createLocalExpense, hydrateFinancialHistory, listLocalExpenses, refreshFinancialHistory } from "@/offline/repositories/financial-history";
+import type { OfflineContext } from "@/offline/repositories/tables";
+import type { LocalExpense } from "@/offline/schema";
 import type { Expense, PaymentMethod } from "@/types/ops";
 import { money, OpsShell, useOpsPage } from "./OpsShared";
 import { buildCurrentMonthRange, dateRangeLabel, formatFinancialDate, isWithinDateRange, option, paymentMethodLabel, paymentMethods, run } from "./OpsPageShared";
@@ -32,29 +37,68 @@ type ExpenseForm = {
 
 export function ExpensesOpsPage() {
   const state = useOpsPage("expenses");
-  const [expenses, setExpenses] = useState<Expense[]>([]);
   const [dateRange, setDateRange] = useState(buildCurrentMonthRange);
   const [editingId, setEditingId] = useState("");
   const [formOpen, setFormOpen] = useState(false);
-  const [pendingDeleteExpense, setPendingDeleteExpense] = useState<Expense | null>(null);
+  const [pendingDeleteExpense, setPendingDeleteExpense] = useState<LocalExpense | null>(null);
   const [form, setForm] = useState<ExpenseForm>(emptyExpenseForm());
+  const [saveBusy, setSaveBusy] = useState(false);
+  const saveGuard = useRef(createActionGuard());
+  const tenantId = state.restaurant?.id ?? "";
+  const offlineContext = useMemo<OfflineContext | null>(() => {
+    if (!state.token || !tenantId) return null;
+    return { token: state.token, tenantId, userId: state.restaurant?.ownerUserId ?? "owner" };
+  }, [state.restaurant?.ownerUserId, state.token, tenantId]);
+  const { value: expenses } = useLiveQuery(() => tenantId ? listLocalExpenses(tenantId) : Promise.resolve([]), [] as LocalExpense[], [tenantId]);
 
   useEffect(() => {
-    if (state.token && state.modules?.expenses) void load();
-  }, [state.token, state.modules?.expenses]);
+    if (offlineContext && state.modules?.expenses) load();
+  }, [offlineContext, state.modules?.expenses]);
 
-  async function load() {
-    setExpenses(await adminRequest<Expense[]>("/api/owner/ops/expenses", state.token));
+  function load() {
+    if (!offlineContext) return;
+    hydrateFinancialHistory(offlineContext);
+  }
+
+  async function refreshExpenses() {
+    if (!offlineContext) return;
+    await refreshFinancialHistory(offlineContext);
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await run(state, async () => {
-      await adminRequest(editingId ? `/api/owner/ops/expenses/${editingId}` : "/api/owner/ops/expenses", state.token, { method: editingId ? "PATCH" : "POST", body: JSON.stringify(form) });
-      setEditingId("");
-      setForm(emptyExpenseForm());
-      setFormOpen(false);
-      await load();
+    if (!form.category.trim()) {
+      state.setMessage("أدخل فئة المصروف.");
+      return;
+    }
+    if (form.amount <= 0) {
+      state.setMessage("أدخل مبلغًا صحيحًا.");
+      return;
+    }
+    await saveGuard.current.run(async () => {
+      setSaveBusy(true);
+      try {
+        await run(state, async () => {
+          if (!offlineContext) throw new Error("تعذر تحديد المطعم الحالي.");
+          if (editingId) {
+            await adminRequest(`/api/owner/ops/expenses/${editingId}`, state.token, { method: "PATCH", body: JSON.stringify(form) });
+            await refreshExpenses();
+          } else {
+            await createLocalExpense(offlineContext, {
+              category: form.category,
+              amount: form.amount,
+              paymentMethod: form.paymentMethod as PaymentMethod,
+              paidAt: form.paidAt || undefined,
+              notes: form.notes
+            });
+          }
+          setEditingId("");
+          setForm(emptyExpenseForm());
+          setFormOpen(false);
+        }, editingId ? "تم حفظ المصروف" : "تم تسجيل المصروف على الجهاز — بانتظار المزامنة");
+      } finally {
+        setSaveBusy(false);
+      }
     });
   }
 
@@ -62,8 +106,8 @@ export function ExpensesOpsPage() {
     await run(state, async () => {
       await adminRequest(`/api/owner/ops/expenses/${id}`, state.token, { method: "DELETE" });
       setPendingDeleteExpense(null);
-      await load();
-    });
+      await refreshExpenses();
+    }, "تم حذف المصروف");
   }
 
   function reset() {
@@ -81,19 +125,20 @@ export function ExpensesOpsPage() {
     reset();
   }
 
-  function edit(expense: Expense) {
+  function edit(expense: LocalExpense) {
+    if (!isConfirmedExpense(expense)) return;
     setEditingId(expense.id);
     setForm({ category: expense.category, amount: expense.amount, paymentMethod: expense.paymentMethod, paidAt: (expense.paidAt || "").slice(0, 10), notes: expense.notes });
     setFormOpen(true);
   }
 
-  const filtered = expenses
+  const filtered = useMemo(() => expenses
     .filter((expense) => isWithinDateRange(expense.paidAt || expense.createdAt, dateRange.from, dateRange.to))
-    .sort((first, second) => String(second.paidAt || second.createdAt || "").localeCompare(String(first.paidAt || first.createdAt || "")));
-  const total = filtered.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+    .sort((first, second) => String(second.paidAt || second.createdAt || "").localeCompare(String(first.paidAt || first.createdAt || ""))), [dateRange.from, dateRange.to, expenses]);
+  const total = useMemo(() => filtered.reduce((sum, expense) => sum + Number(expense.amount || 0), 0), [filtered]);
 
   return (
-    <OpsShell title="المصروفات" eyebrow="المحاسبة" module="expenses" state={state} onRefresh={() => void Promise.all([state.loadRestaurant(), load()])}>
+    <OpsShell title="المصروفات" eyebrow="المحاسبة" module="expenses" state={state} onRefresh={() => void Promise.all([state.loadRestaurant(), refreshExpenses()])}>
       <div className="grid gap-4">
         <AppPageHeader
           title="المصروفات"
@@ -145,12 +190,17 @@ export function ExpensesOpsPage() {
                     {filtered.map((expense) => (
                       <tr key={expense.id} className="align-middle">
                         <td className="whitespace-nowrap border-b border-app-border px-3 py-3">{formatFinancialDate(expense.paidAt || expense.createdAt)}</td>
-                        <td className="border-b border-app-border px-3 py-3"><AppBadge variant="neutral">{expense.category}</AppBadge></td>
+                        <td className="border-b border-app-border px-3 py-3">
+                          <div className="flex flex-wrap gap-1">
+                            <AppBadge variant="neutral">{expense.category}</AppBadge>
+                            <ExpenseSyncBadge expense={expense} />
+                          </div>
+                        </td>
                         <td className="whitespace-nowrap border-b border-app-border px-3 py-3 text-app-muted">{paymentMethodLabel(expense.paymentMethod)}</td>
                         <td className="whitespace-nowrap border-b border-app-border px-3 py-3 font-semibold text-app-danger">{money(expense.amount, state.restaurant?.currency)}</td>
                         <td className="max-w-sm border-b border-app-border px-3 py-3 text-app-muted"><span className="block truncate">{expense.notes || "-"}</span></td>
                         <td className="border-b border-app-border px-3 py-3">
-                          <ExpenseRowActions onEdit={() => edit(expense)} onDelete={() => setPendingDeleteExpense(expense)} />
+                          <ExpenseRowActions expense={expense} onEdit={() => edit(expense)} onDelete={() => setPendingDeleteExpense(expense)} />
                         </td>
                       </tr>
                     ))}
@@ -190,7 +240,7 @@ export function ExpensesOpsPage() {
             <AppTextarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
           </AppFieldShell>
           <div className="flex flex-wrap gap-2">
-            <AppButton type="submit">{editingId ? "حفظ" : "إضافة"}</AppButton>
+            <AppButton type="submit" loading={saveBusy} disabled={saveBusy}>{editingId ? "حفظ" : "إضافة"}</AppButton>
             <AppButton type="button" variant="secondary" onClick={closeForm}>إلغاء</AppButton>
           </div>
         </form>
@@ -209,29 +259,50 @@ export function ExpensesOpsPage() {
   );
 }
 
-function ExpenseMobileRow({ expense, currency, onEdit, onDelete }: { expense: Expense; currency?: string; onEdit: () => void; onDelete: () => void }) {
+function ExpenseMobileRow({ expense, currency, onEdit, onDelete }: { expense: LocalExpense; currency?: string; onEdit: () => void; onDelete: () => void }) {
   return (
     <article className="rounded-app-md border border-app-border bg-app-surface p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="font-semibold text-app-ink">{expense.category}</p>
+          <div className="flex flex-wrap items-center gap-1">
+            <p className="font-semibold text-app-ink">{expense.category}</p>
+            <ExpenseSyncBadge expense={expense} />
+          </div>
           <p className="mt-1 text-app-helper text-app-muted">{formatFinancialDate(expense.paidAt || expense.createdAt)} · {paymentMethodLabel(expense.paymentMethod)}</p>
         </div>
         <p className="shrink-0 font-semibold text-app-danger">{money(expense.amount, currency)}</p>
       </div>
       {expense.notes ? <p className="mt-3 truncate text-app-helper text-app-muted">{expense.notes}</p> : null}
-      <ExpenseRowActions onEdit={onEdit} onDelete={onDelete} className="mt-3" />
+      <ExpenseRowActions expense={expense} onEdit={onEdit} onDelete={onDelete} className="mt-3" />
     </article>
   );
 }
 
-function ExpenseRowActions({ onEdit, onDelete, className }: { onEdit: () => void; onDelete: () => void; className?: string }) {
+function ExpenseRowActions({ expense, onEdit, onDelete, className }: { expense: LocalExpense; onEdit: () => void; onDelete: () => void; className?: string }) {
+  const confirmed = isConfirmedExpense(expense);
   return (
     <div className={cn("flex flex-wrap gap-2", className)}>
-      <AppButton type="button" variant="secondary" size="sm" onClick={onEdit}>تعديل</AppButton>
-      <AppButton type="button" variant="ghost" size="sm" onClick={onDelete} className="text-app-danger hover:bg-app-danger-soft">حذف</AppButton>
+      <AppButton type="button" variant="secondary" size="sm" onClick={onEdit} disabled={!confirmed}>تعديل</AppButton>
+      <AppButton type="button" variant="ghost" size="sm" onClick={onDelete} disabled={!confirmed} className="text-app-danger hover:bg-app-danger-soft">حذف</AppButton>
     </div>
   );
+}
+
+function ExpenseSyncBadge({ expense }: { expense: LocalExpense }) {
+  if (!expense.syncStatus || expense.syncStatus === "synced") return null;
+  const labels: Record<NonNullable<LocalExpense["syncStatus"]>, string> = {
+    pending: "محلي",
+    syncing: "قيد المزامنة",
+    synced: "مؤكد",
+    failed: expense.syncErrorCode === "auth_required" ? "تحتاج تسجيل دخول" : "فشل",
+    conflict: "تحتاج مراجعة"
+  };
+  const variant = expense.syncStatus === "failed" || expense.syncStatus === "conflict" ? "danger" : expense.syncStatus === "syncing" ? "primary" : "warning";
+  return <AppBadge variant={variant}>{labels[expense.syncStatus]}</AppBadge>;
+}
+
+function isConfirmedExpense(expense: LocalExpense) {
+  return !expense.syncStatus || expense.syncStatus === "synced";
 }
 
 function emptyExpenseForm(): ExpenseForm {

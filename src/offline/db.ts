@@ -71,6 +71,29 @@ class OfflineDatabase extends Dexie {
       syncConflicts: "&id, tenantId, operationId, entityType, entityId, resolvedAt",
       deviceState: "&key, deviceId"
     });
+    this.version(2).stores({
+      restaurants: "&id, slug, syncStatus, updatedAt",
+      categories: "&id, restaurantId, syncStatus, updatedAt, deletedAt",
+      menuItems: "&id, restaurantId, categoryId, syncStatus, updatedAt, deletedAt",
+      users: "&id, restaurantId, email",
+      tables: "&id, restaurantId, status, currentOrderId, syncStatus, updatedAt, deletedAt",
+      orders: "&id, restaurantId, tableId, status, syncStatus, updatedAt, deletedAt",
+      inventoryItems: "&id, restaurantId, syncStatus, updatedAt, deletedAt",
+      inventoryTransactions: "&id, restaurantId, inventoryItemId, referenceId, syncStatus, createdAt",
+      recipeIngredients: "&id, restaurantId, menuItemId, inventoryItemId, syncStatus, updatedAt, deletedAt",
+      suppliers: "&id, restaurantId, syncStatus, updatedAt, deletedAt",
+      invoices: "&id, restaurantId, orderId, supplierId, status, syncStatus, updatedAt, deletedAt",
+      payments: "&id, restaurantId, invoiceId, orderId, supplierId, syncStatus, createdAt",
+      expenses: "&id, restaurantId, syncStatus, paidAt, createdAt, deletedAt",
+      cashRegisters: "&id, restaurantId, syncStatus, updatedAt, deletedAt",
+      cashMovements: "&id, restaurantId, cashRegisterId, referenceId, syncStatus, createdAt",
+      accounts: "&id, restaurantId, code, syncStatus, updatedAt, deletedAt",
+      journalEntries: "&id, restaurantId, referenceId, status, syncStatus, createdAt",
+      syncQueue: "&operationId, tenantId, entityType, entityId, status, [tenantId+status], [tenantId+entityType+entityId], nextAttemptAt, createdAt",
+      syncMetadata: "&key, tenantId",
+      syncConflicts: "&id, tenantId, operationId, entityType, entityId, [tenantId+entityType+entityId], resolvedAt",
+      deviceState: "&key, deviceId"
+    });
     this.opsTables = this.table("tables");
   }
 }

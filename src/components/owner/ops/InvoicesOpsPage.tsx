@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AppBadge,
   AppButton,
@@ -18,9 +18,14 @@ import {
 } from "@/components/shared";
 import { adminRequest } from "@/lib/api";
 import { formatInteger } from "@/lib/format";
+import { useLiveQuery } from "@/offline/hooks/useLiveQuery";
+import { hydrateInvoices, hydrateInvoiceSuppliers, listLocalInvoices, listLocalSuppliers, refreshInvoices, refreshInvoiceSuppliers } from "@/offline/repositories/invoices";
+import type { OfflineContext } from "@/offline/repositories/tables";
+import type { LocalInvoice } from "@/offline/schema";
 import type { Invoice, InvoiceStatus, InvoiceType, PaymentMethod, Supplier } from "@/types/ops";
 import { money, OpsShell, useOpsPage } from "./OpsShared";
 import { buildCurrentMonthRange, dateRangeLabel, formatFinancialDate, invoiceStatuses, invoiceTypes, isWithinDateRange, numberValue, option, paymentMethodLabel, paymentMethods, run } from "./OpsPageShared";
+import { InvoiceReceiptPrintButton } from "./InvoiceReceiptPrintButton";
 
 type InvoiceForm = {
   type: string;
@@ -41,26 +46,38 @@ type InvoiceForm = {
 
 export function InvoicesOpsPage() {
   const state = useOpsPage("accounting");
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [status, setStatus] = useState("ALL");
   const [dateRange, setDateRange] = useState(buildCurrentMonthRange);
   const [editingId, setEditingId] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [pendingDeleteInvoice, setPendingDeleteInvoice] = useState<Invoice | null>(null);
   const [form, setForm] = useState<InvoiceForm>(emptyInvoiceForm());
+  const tenantId = state.restaurant?.id ?? "";
+  const offlineContext = useMemo<OfflineContext | null>(() => {
+    if (!state.token || !tenantId) return null;
+    return { token: state.token, tenantId, userId: state.restaurant?.ownerUserId ?? "owner" };
+  }, [state.restaurant?.ownerUserId, state.token, tenantId]);
+  const { value: invoices } = useLiveQuery(() => tenantId ? listLocalInvoices(tenantId) : Promise.resolve([]), [] as LocalInvoice[], [tenantId]);
+  const { value: suppliers } = useLiveQuery(() => tenantId ? listLocalSuppliers(tenantId) : Promise.resolve([]), [] as Supplier[], [tenantId]);
 
   useEffect(() => {
-    if (state.token && state.modules?.accounting) void load();
-  }, [state.token, state.modules?.accounting]);
+    if (offlineContext && state.modules?.accounting) void load();
+  }, [offlineContext, state.modules?.accounting, state.modules?.purchasing]);
 
   async function load() {
-    const [nextInvoices, nextSuppliers] = await Promise.all([
-      adminRequest<Invoice[]>("/api/owner/ops/invoices", state.token),
-      state.modules?.purchasing ? adminRequest<Supplier[]>("/api/owner/ops/suppliers", state.token).catch(() => []) : Promise.resolve([])
+    if (!offlineContext) return;
+    await Promise.all([
+      hydrateInvoices(offlineContext),
+      hydrateInvoiceSuppliers(offlineContext, state.modules?.purchasing)
     ]);
-    setInvoices(nextInvoices);
-    setSuppliers(nextSuppliers);
+  }
+
+  async function refreshHistory() {
+    if (!offlineContext) return;
+    await Promise.all([
+      refreshInvoices(offlineContext),
+      state.modules?.purchasing ? refreshInvoiceSuppliers(offlineContext) : Promise.resolve([])
+    ]);
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -84,7 +101,7 @@ export function InvoicesOpsPage() {
       setEditingId("");
       setForm(emptyInvoiceForm());
       setFormOpen(false);
-      await load();
+      await refreshHistory();
     });
   }
 
@@ -92,7 +109,7 @@ export function InvoicesOpsPage() {
     await run(state, async () => {
       await adminRequest(`/api/owner/ops/invoices/${id}`, state.token, { method: "DELETE" });
       setPendingDeleteInvoice(null);
-      await load();
+      await refreshHistory();
     });
   }
 
@@ -130,16 +147,16 @@ export function InvoicesOpsPage() {
     setFormOpen(true);
   }
 
-  const filtered = invoices
+  const filtered = useMemo(() => invoices
     .filter((invoice) => status === "ALL" || invoice.status === status)
     .filter((invoice) => isWithinDateRange(invoice.createdAt || invoice.dueDate, dateRange.from, dateRange.to))
-    .sort((first, second) => String(second.createdAt || second.dueDate || "").localeCompare(String(first.createdAt || first.dueDate || "")));
-  const invoiceTotal = filtered.reduce((sum, invoice) => sum + numberValue(invoice.total), 0);
-  const paidTotal = filtered.reduce((sum, invoice) => sum + numberValue(invoice.paidAmount), 0);
-  const remainingTotal = filtered.reduce((sum, invoice) => sum + numberValue(invoice.remainingAmount), 0);
+    .sort((first, second) => String(second.createdAt || second.dueDate || "").localeCompare(String(first.createdAt || first.dueDate || ""))), [dateRange.from, dateRange.to, invoices, status]);
+  const invoiceTotal = useMemo(() => filtered.reduce((sum, invoice) => sum + numberValue(invoice.total), 0), [filtered]);
+  const paidTotal = useMemo(() => filtered.reduce((sum, invoice) => sum + numberValue(invoice.paidAmount), 0), [filtered]);
+  const remainingTotal = useMemo(() => filtered.reduce((sum, invoice) => sum + numberValue(invoice.remainingAmount), 0), [filtered]);
 
   return (
-    <OpsShell title="الفواتير" eyebrow="المحاسبة" module="accounting" state={state} onRefresh={() => void Promise.all([state.loadRestaurant(), load()])}>
+    <OpsShell title="الفواتير" eyebrow="المحاسبة" module="accounting" state={state} onRefresh={() => void Promise.all([state.loadRestaurant(), refreshHistory()])}>
       <div className="grid gap-4">
         <AppPageHeader
           title="الفواتير"
@@ -215,9 +232,14 @@ export function InvoicesOpsPage() {
                         <td className="whitespace-nowrap border-b border-app-border px-3 py-3 font-semibold text-app-ink">{money(invoice.total, state.restaurant?.currency)}</td>
                         <td className="whitespace-nowrap border-b border-app-border px-3 py-3 font-semibold text-app-success">{money(invoice.paidAmount, state.restaurant?.currency)}</td>
                         <td className="whitespace-nowrap border-b border-app-border px-3 py-3 font-semibold text-app-danger">{money(invoice.remainingAmount, state.restaurant?.currency)}</td>
-                        <td className="whitespace-nowrap border-b border-app-border px-3 py-3"><InvoiceStatusBadge status={invoice.status} /></td>
+                        <td className="whitespace-nowrap border-b border-app-border px-3 py-3"><InvoiceStatusCell invoice={invoice} /></td>
                         <td className="border-b border-app-border px-3 py-3">
-                          <InvoiceRowActions onEdit={() => edit(invoice)} onDelete={() => setPendingDeleteInvoice(invoice)} />
+                          <InvoiceRowActions
+                            invoice={invoice}
+                            restaurant={state.restaurant}
+                            onEdit={() => edit(invoice)}
+                            onDelete={() => setPendingDeleteInvoice(invoice)}
+                          />
                         </td>
                       </tr>
                     ))}
@@ -227,7 +249,15 @@ export function InvoicesOpsPage() {
 
               <div className="mt-4 grid gap-2 lg:hidden">
                 {filtered.map((invoice) => (
-                  <InvoiceMobileRow key={invoice.id} invoice={invoice} suppliers={suppliers} currency={state.restaurant?.currency} onEdit={() => edit(invoice)} onDelete={() => setPendingDeleteInvoice(invoice)} />
+                  <InvoiceMobileRow
+                    key={invoice.id}
+                    invoice={invoice}
+                    suppliers={suppliers}
+                    currency={state.restaurant?.currency}
+                    restaurant={state.restaurant}
+                    onEdit={() => edit(invoice)}
+                    onDelete={() => setPendingDeleteInvoice(invoice)}
+                  />
                 ))}
               </div>
             </>
@@ -302,14 +332,28 @@ export function InvoicesOpsPage() {
   );
 }
 
-function InvoiceMobileRow({ invoice, suppliers, currency, onEdit, onDelete }: { invoice: Invoice; suppliers: Supplier[]; currency?: string; onEdit: () => void; onDelete: () => void }) {
+function InvoiceMobileRow({
+  invoice,
+  suppliers,
+  currency,
+  restaurant,
+  onEdit,
+  onDelete
+}: {
+  invoice: LocalInvoice;
+  suppliers: Supplier[];
+  currency?: string;
+  restaurant: Parameters<typeof InvoiceReceiptPrintButton>[0]["restaurant"];
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
   return (
     <article className="rounded-app-md border border-app-border bg-app-surface p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <AppBadge variant="neutral">{invoiceTypeLabel(invoice.type)}</AppBadge>
-            <InvoiceStatusBadge status={invoice.status} />
+            <InvoiceStatusCell invoice={invoice} />
           </div>
           <p className="mt-2 truncate font-semibold text-app-ink">{invoice.items.map((item) => item.name).join("، ") || "-"}</p>
           <p className="mt-1 text-app-helper text-app-muted">{invoicePartyLabel(invoice, suppliers)} · {formatFinancialDate(invoice.createdAt || invoice.dueDate)}</p>
@@ -320,7 +364,7 @@ function InvoiceMobileRow({ invoice, suppliers, currency, onEdit, onDelete }: { 
         <InvoiceFact label="المدفوع" value={money(invoice.paidAmount, currency)} tone="success" />
         <InvoiceFact label="المتبقي" value={money(invoice.remainingAmount, currency)} tone="danger" />
       </div>
-      <InvoiceRowActions onEdit={onEdit} onDelete={onDelete} className="mt-3" />
+      <InvoiceRowActions invoice={invoice} restaurant={restaurant} onEdit={onEdit} onDelete={onDelete} className="mt-3" />
     </article>
   );
 }
@@ -343,13 +387,49 @@ function InvoiceFact({ label, value, tone = "neutral", strong = false }: { label
   );
 }
 
-function InvoiceRowActions({ onEdit, onDelete, className }: { onEdit: () => void; onDelete: () => void; className?: string }) {
+function InvoiceRowActions({
+  invoice,
+  restaurant,
+  onEdit,
+  onDelete,
+  className
+}: {
+  invoice: LocalInvoice;
+  restaurant: Parameters<typeof InvoiceReceiptPrintButton>[0]["restaurant"];
+  onEdit: () => void;
+  onDelete: () => void;
+  className?: string;
+}) {
+  const confirmed = invoice.syncStatus === "synced" || !invoice.syncStatus;
   return (
     <div className={cn("flex flex-wrap gap-2", className)}>
-      <AppButton type="button" variant="secondary" size="sm" onClick={onEdit}>تعديل</AppButton>
-      <AppButton type="button" variant="ghost" size="sm" onClick={onDelete} className="text-app-danger hover:bg-app-danger-soft">حذف</AppButton>
+      <InvoiceReceiptPrintButton invoice={invoice} restaurant={restaurant} />
+      <AppButton type="button" variant="secondary" size="sm" onClick={onEdit} disabled={!confirmed}>تعديل</AppButton>
+      <AppButton type="button" variant="ghost" size="sm" onClick={onDelete} disabled={!confirmed} className="text-app-danger hover:bg-app-danger-soft">حذف</AppButton>
     </div>
   );
+}
+
+function InvoiceStatusCell({ invoice }: { invoice: LocalInvoice }) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      <InvoiceStatusBadge status={invoice.status} />
+      {invoice.syncStatus && invoice.syncStatus !== "synced" ? <InvoiceSyncBadge status={invoice.syncStatus} /> : null}
+      {invoice.reconciliationWarning ? <AppBadge variant="warning">فرق إجمالي</AppBadge> : null}
+    </div>
+  );
+}
+
+function InvoiceSyncBadge({ status }: { status: NonNullable<LocalInvoice["syncStatus"]> }) {
+  const labels: Record<NonNullable<LocalInvoice["syncStatus"]>, string> = {
+    pending: "محلية",
+    syncing: "قيد المزامنة",
+    synced: "مؤكدة",
+    failed: "تحتاج مزامنة",
+    conflict: "تحتاج مراجعة"
+  };
+  const variant = status === "failed" || status === "conflict" ? "danger" : status === "syncing" ? "primary" : "warning";
+  return <AppBadge variant={variant}>{labels[status]}</AppBadge>;
 }
 
 function InvoiceStatusBadge({ status }: { status: InvoiceStatus }) {

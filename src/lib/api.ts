@@ -1,16 +1,18 @@
 import type { PullChange, PushOperation, PushResult } from "@/offline/schema";
 import type { ApiEnvelope, MenuPayload, Restaurant } from "@/types/menu";
+import { ApiError } from "./api-errors";
 
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ??
-  "https://restaurantsserver.onrender.com";
-  // "http://localhost:4000";
+  // "https://restaurantsserver.onrender.com";
+  "http://localhost:4000";
 
 const requestTimeoutMs = 20_000;
+const backgroundRequestTimeoutMs = 7_000;
 
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+async function fetchJson<T>(path: string, init?: RequestInit, timeoutMs = requestTimeoutMs): Promise<T> {
   const controller = new AbortController();
-  const timeout = globalThis.setTimeout(() => controller.abort(), requestTimeoutMs);
+  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
 
   let response: Response;
   try {
@@ -33,7 +35,11 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(payload?.error?.message ?? "حدث خطأ أثناء الاتصال بالخادم");
+    throw new ApiError(
+      payload?.error?.message ?? "حدث خطأ أثناء الاتصال بالخادم",
+      response.status,
+      payload?.error?.code
+    );
   }
 
   return (payload as ApiEnvelope<T>).data;
@@ -66,6 +72,17 @@ export function adminRequest<T>(path: string, token?: string, init?: RequestInit
       ...init?.headers
     }
   });
+}
+
+export function adminBackgroundRequest<T>(path: string, token?: string, init?: RequestInit) {
+  return fetchJson<T>(path, {
+    ...init,
+    cache: "no-store",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init?.headers
+    }
+  }, backgroundRequestTimeoutMs);
 }
 
 export function syncPush(token: string, deviceId: string, operations: PushOperation[]) {
