@@ -65,6 +65,7 @@ const recentTableHistoryLimit = 8;
 export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
   const router = useRouter();
   const state = useOpsPage("tables");
+  const [activeTableId, setActiveTableId] = useState(tableId);
   const [tableFormOpen, setTableFormOpen] = useState(false);
   const [tableForm, setTableForm] = useState({ name: "", area: "", capacity: 1, status: "AVAILABLE", qrCode: "" });
   const [orderForm, setOrderForm] = useState({ name: "", tableId: "", type: "DINE_IN", status: "PENDING", discount: 0, tax: 0, serviceCharge: 0, paymentMethod: "CASH", notes: "" });
@@ -102,18 +103,24 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
     if (!state.token || !tenantId) return null;
     return { token: state.token, tenantId, userId: state.restaurant?.ownerUserId ?? "owner" };
   }, [state.restaurant?.ownerUserId, state.token, tenantId]);
-  const { value: table } = useLiveQuery(() => tenantId ? getLocalTable(tenantId, tableId) : Promise.resolve(null), null as OpsTable | null, [tenantId, tableId]);
+  const { value: selectedTable } = useLiveQuery(() => tenantId ? getLocalTable(tenantId, activeTableId) : Promise.resolve(null), null as OpsTable | null, [tenantId, activeTableId]);
   const { value: tables } = useLiveQuery(() => tenantId ? listLocalTables(tenantId) : Promise.resolve([]), [] as OpsTable[], [tenantId]);
-  const { value: order } = useLiveQuery(() => tenantId && table?.currentOrderId ? getLocalOrder(tenantId, table.currentOrderId) : Promise.resolve(null), null as OpsOrder | null, [tenantId, table?.currentOrderId]);
+  const table = useMemo(() => tables.find((entry) => entry.id === activeTableId) ?? (selectedTable?.id === activeTableId ? selectedTable : null), [activeTableId, selectedTable, tables]);
+  const { value: selectedOrder } = useLiveQuery(() => tenantId && table?.currentOrderId ? getLocalOrder(tenantId, table.currentOrderId) : Promise.resolve(null), null as OpsOrder | null, [tenantId, table?.currentOrderId]);
   const { value: orders } = useLiveQuery(() => tenantId ? listLocalOrders(tenantId) : Promise.resolve([]), [] as OpsOrder[], [tenantId]);
   const { value: menuItems } = useLiveQuery(() => tenantId ? listLocalMenuItems(tenantId) : Promise.resolve([]), [] as MenuItem[], [tenantId]);
   const { value: categories } = useLiveQuery(() => tenantId ? listLocalCategories(tenantId) : Promise.resolve([]), [] as Category[], [tenantId]);
   const { value: recipes } = useLiveQuery(() => tenantId ? listLocalRecipeIngredients(tenantId) : Promise.resolve([]), [] as RecipeIngredient[], [tenantId]);
   const { value: cashRegisters } = useLiveQuery(() => tenantId ? listLocalCashRegisters(tenantId) : Promise.resolve([]), [] as CashRegister[], [tenantId]);
 
+  const orderById = useMemo(() => new Map(orders.map((entry) => [entry.id, entry])), [orders]);
+  const order = useMemo(() => {
+    if (!table?.currentOrderId) return null;
+    return orderById.get(table.currentOrderId) ?? (selectedOrder?.id === table.currentOrderId ? selectedOrder : null);
+  }, [orderById, selectedOrder, table?.currentOrderId]);
   const lockedOrder = Boolean(order && (["COMPLETED", "CANCELLED"].includes(order.status) || order.invoiceId || order.paymentId));
   const canStartOrder = Boolean(table && !table.currentOrderId && !order && state.modules?.orders);
-  const currentOrderTableId = order?.tableId || tableId;
+  const currentOrderTableId = order?.tableId || activeTableId;
   const eligibleMoveTables = useMemo(() => {
     return tables.filter((entry) => entry.id !== currentOrderTableId && entry.status !== "DISABLED" && !entry.currentOrderId);
   }, [currentOrderTableId, tables]);
@@ -139,15 +146,28 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
   }, [addCart]);
   const startPicker = useMenuPickerData(menuItems, categories, startItemQuery, activeStartCategoryId);
   const addPicker = useMenuPickerData(menuItems, categories, addItemQuery, activeAddCategoryId);
-  const orderById = useMemo(() => new Map(orders.map((entry) => [entry.id, entry])), [orders]);
   const railTables = useMemo(() => sortTablesForNavigation(tables), [tables]);
-  const lastTableId = recentTableIds.find((id) => id !== tableId) ?? "";
+  const lastTableId = recentTableIds.find((id) => id !== activeTableId) ?? "";
   const lastTable = tables.find((entry) => entry.id === lastTableId) ?? null;
   const lastTableOrder = lastTable?.currentOrderId ? orderById.get(lastTable.currentOrderId) ?? null : null;
 
   useEffect(() => {
+    setActiveTableId(tableId);
+  }, [tableId]);
+
+  useEffect(() => {
+    function handlePopState() {
+      const nextTableId = tableIdFromPath(window.location.pathname);
+      if (nextTableId) setActiveTableId(nextTableId);
+    }
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  useEffect(() => {
     if (offlineContext && state.modules?.tables) void load();
-  }, [offlineContext, state.modules?.tables, tableId]);
+  }, [offlineContext, state.modules?.tables]);
 
   useEffect(() => {
     if (!recentTablesKey) {
@@ -159,19 +179,23 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
   }, [recentTablesKey]);
 
   useEffect(() => {
-    if (!recentTablesKey || !tableId) return;
+    if (!recentTablesKey || !activeTableId) return;
 
     setRecentTableIds(() => {
       const base = readRecentTableIds(recentTablesKey);
-      const next = [tableId, ...base.filter((id) => id !== tableId)].slice(0, recentTableHistoryLimit);
+      const next = [activeTableId, ...base.filter((id) => id !== activeTableId)].slice(0, recentTableHistoryLimit);
       writeRecentTableIds(recentTablesKey, next);
       return next;
     });
-  }, [recentTablesKey, tableId]);
+  }, [recentTablesKey, activeTableId]);
 
   useEffect(() => {
     if (table) hydrateTableForm(table);
   }, [table]);
+
+  useEffect(() => {
+    if (table) markTableSwitch(`table-ready:${activeTableId}`);
+  }, [activeTableId, table]);
 
   useEffect(() => {
     if (order) {
@@ -181,13 +205,36 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
     }
   }, [order, cashRegisters]);
 
+  useEffect(() => {
+    markTableSwitch(`order-ready:${activeTableId}:${order?.id ?? "none"}`);
+  }, [activeTableId, order?.id]);
+
+  useEffect(() => {
+    markTableSwitch(`items-ready:${activeTableId}:${lines.length}`);
+  }, [activeTableId, lines.length]);
+
+  function switchTable(nextTableId: string) {
+    if (!nextTableId || nextTableId === activeTableId) return;
+    setActiveTableId(nextTableId);
+    const nextPath = `/owner/operations/tables/${nextTableId}`;
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, "", nextPath);
+    }
+    markTableSwitch(`table:${nextTableId}`);
+  }
+
   async function load() {
     if (!offlineContext) return;
-    await Promise.all([
-      hydrateTables(offlineContext),
-      hydrateOrders(offlineContext),
-      hydrateReferenceData(offlineContext, { inventory: state.modules?.inventory, accounting: state.modules?.accounting })
-    ]);
+    markTableSwitch("hydration-start");
+    try {
+      await Promise.all([
+        hydrateTables(offlineContext),
+        hydrateOrders(offlineContext),
+        hydrateReferenceData(offlineContext, { inventory: state.modules?.inventory, accounting: state.modules?.accounting })
+      ]);
+    } finally {
+      markTableSwitch("hydration-end");
+    }
 
     const moveMessage = window.sessionStorage.getItem(moveOrderMessageKey);
     if (moveMessage) {
@@ -209,7 +256,7 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
   function hydrateOrderForms(nextOrder: OpsOrder) {
     setOrderForm({
       name: nextOrder.name || nextOrder.id,
-      tableId: nextOrder.tableId || table?.id || tableId,
+      tableId: nextOrder.tableId || table?.id || activeTableId,
       type: nextOrder.type,
       status: nextOrder.status,
       discount: nextOrder.discount,
@@ -278,7 +325,7 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
 
   function closeStartOrder() {
     setStartOrderOpen(false);
-    setStartOrderForm(emptyStartOrderForm(table?.id ?? tableId, table?.name ?? ""));
+    setStartOrderForm(emptyStartOrderForm(table?.id ?? activeTableId, table?.name ?? ""));
     setStartOrderNameTouched(false);
     setStartCart([]);
     setStartItemQuery("");
@@ -566,7 +613,7 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
     <OpsShell title="تفاصيل الطاولة" eyebrow="الطاولات والطلبات المفتوحة" module="tables" state={state} onRefresh={() => void Promise.all([state.loadRestaurant(), load()])}>
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_10.5rem] xl:[direction:ltr] 2xl:grid-cols-[minmax(0,1fr)_11.5rem]">
         <div className="min-w-0 xl:[direction:rtl]">
-          <QuickTablesMobile tables={railTables} currentTableId={tableId} orderById={orderById} lastTable={lastTable} lastOrder={lastTableOrder} currency={state.restaurant?.currency} />
+          <QuickTablesMobile tables={railTables} currentTableId={activeTableId} orderById={orderById} lastTable={lastTable} lastOrder={lastTableOrder} currency={state.restaurant?.currency} onSelectTable={switchTable} />
           <AppSurface className="p-2">
             {table ? (
               order ? (
@@ -710,7 +757,7 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
             ) : <AppEmptyState title="لم يتم العثور على الطاولة" description="تحقق من الرابط أو ارجع لقائمة الطاولات." />}
           </AppSurface>
         </div>
-        <QuickTablesRail tables={railTables} currentTableId={tableId} orderById={orderById} lastTable={lastTable} lastOrder={lastTableOrder} currency={state.restaurant?.currency} />
+        <QuickTablesRail tables={railTables} currentTableId={activeTableId} orderById={orderById} lastTable={lastTable} lastOrder={lastTableOrder} currency={state.restaurant?.currency} onSelectTable={switchTable} />
       </div>
 
       <PopupForm open={orderDetailsOpen} onClose={() => setOrderDetailsOpen(false)} title="تفاصيل الطلب" maxWidth="md">
@@ -849,7 +896,7 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
         <form onSubmit={createOrder} className="grid gap-3">
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-app-md border border-app-border bg-app-surface-muted px-3 py-2">
             <div className="flex flex-wrap items-center gap-2 text-sm font-bold text-app-ink">
-              <span>طاولة {table?.name ?? tableId}</span>
+              <span>طاولة {table?.name ?? activeTableId}</span>
               <span className="text-app-meta text-app-muted" aria-hidden="true">•</span>
               <span>{option(startOrderForm.type).label}</span>
               <span className="text-app-meta text-app-muted" aria-hidden="true">•</span>
@@ -1043,7 +1090,8 @@ function QuickTablesRail({
   orderById,
   lastTable,
   lastOrder,
-  currency
+  currency,
+  onSelectTable
 }: {
   tables: OpsTable[];
   currentTableId: string;
@@ -1051,6 +1099,7 @@ function QuickTablesRail({
   lastTable: OpsTable | null;
   lastOrder: OpsOrder | null;
   currency?: string;
+  onSelectTable: (tableId: string) => void;
 }) {
   return (
     <aside className="hidden xl:block xl:[direction:rtl]">
@@ -1062,11 +1111,11 @@ function QuickTablesRail({
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           <div className="grid grid-cols-3 gap-1.5 2xl:gap-2">
             {tables.map((entry) => (
-              <QuickTableLink key={entry.id} table={entry} current={entry.id === currentTableId} order={entry.currentOrderId ? orderById.get(entry.currentOrderId) ?? null : null} />
+              <QuickTableLink key={entry.id} table={entry} current={entry.id === currentTableId} order={entry.currentOrderId ? orderById.get(entry.currentOrderId) ?? null : null} onSelect={onSelectTable} />
             ))}
           </div>
         </div>
-        <LastTableCard table={lastTable} order={lastOrder} currency={currency} />
+        <LastTableCard table={lastTable} order={lastOrder} currency={currency} onSelect={onSelectTable} />
       </div>
     </aside>
   );
@@ -1078,7 +1127,8 @@ function QuickTablesMobile({
   orderById,
   lastTable,
   lastOrder,
-  currency
+  currency,
+  onSelectTable
 }: {
   tables: OpsTable[];
   currentTableId: string;
@@ -1086,6 +1136,7 @@ function QuickTablesMobile({
   lastTable: OpsTable | null;
   lastOrder: OpsOrder | null;
   currency?: string;
+  onSelectTable: (tableId: string) => void;
 }) {
   return (
     <details className="mb-3 rounded-app-lg border border-app-border bg-app-surface xl:hidden">
@@ -1096,21 +1147,22 @@ function QuickTablesMobile({
       <div className="border-t border-app-border p-2">
         <div className="grid max-h-64 grid-cols-4 gap-1.5 overflow-y-auto sm:grid-cols-6 md:grid-cols-8">
           {tables.map((entry) => (
-            <QuickTableLink key={entry.id} table={entry} current={entry.id === currentTableId} order={entry.currentOrderId ? orderById.get(entry.currentOrderId) ?? null : null} />
+            <QuickTableLink key={entry.id} table={entry} current={entry.id === currentTableId} order={entry.currentOrderId ? orderById.get(entry.currentOrderId) ?? null : null} onSelect={onSelectTable} />
           ))}
         </div>
-        <LastTableCard table={lastTable} order={lastOrder} currency={currency} compact />
+        <LastTableCard table={lastTable} order={lastOrder} currency={currency} compact onSelect={onSelectTable} />
       </div>
     </details>
   );
 }
 
-function QuickTableLink({ table, current, order }: { table: OpsTable; current: boolean; order: OpsOrder | null }) {
+function QuickTableLink({ table, current, order, onSelect }: { table: OpsTable; current: boolean; order: OpsOrder | null; onSelect: (tableId: string) => void }) {
   const state = tableNavigationState(table, order);
 
   return (
-    <Link
-      href={`/owner/operations/tables/${table.id}`}
+    <button
+      type="button"
+      onClick={() => onSelect(table.id)}
       aria-current={current ? "page" : undefined}
       className={cn(
         "relative grid h-11 min-w-0 place-items-center rounded-app-md border px-1 text-sm font-black transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft",
@@ -1123,20 +1175,21 @@ function QuickTableLink({ table, current, order }: { table: OpsTable; current: b
     >
       <span className="max-w-full truncate">{table.name}</span>
       <span className={cn("absolute bottom-1 left-1 h-2 w-2 rounded-full", current ? "bg-app-primary-foreground" : state.dotClass)} aria-hidden="true" />
-    </Link>
+    </button>
   );
 }
 
-function LastTableCard({ table, order, currency, compact = false }: { table: OpsTable | null; order: OpsOrder | null; currency?: string; compact?: boolean }) {
+function LastTableCard({ table, order, currency, compact = false, onSelect }: { table: OpsTable | null; order: OpsOrder | null; currency?: string; compact?: boolean; onSelect: (tableId: string) => void }) {
   if (!table) return null;
 
   const state = tableNavigationState(table, order);
 
   return (
     <div className={cn("border-t border-app-border p-2", compact && "mt-2 rounded-app-md border")}>
-      <Link
-        href={`/owner/operations/tables/${table.id}`}
-        className="block rounded-app-md border border-app-border bg-app-surface-muted px-2 py-1.5 transition-colors hover:border-app-primary hover:bg-app-primary-soft focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft"
+      <button
+        type="button"
+        onClick={() => onSelect(table.id)}
+        className="block w-full rounded-app-md border border-app-border bg-app-surface-muted px-2 py-1.5 text-start transition-colors hover:border-app-primary hover:bg-app-primary-soft focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft"
       >
         <div className="flex items-center justify-between gap-2">
           <span className="truncate text-xs font-bold text-app-muted">آخر طاولة: <span className="text-app-ink">{table.name}</span></span>
@@ -1147,7 +1200,7 @@ function LastTableCard({ table, order, currency, compact = false }: { table: Ops
             {money(order.total, currency)}
           </p>
         ) : null}
-      </Link>
+      </button>
     </div>
   );
 }
@@ -1403,6 +1456,18 @@ function cashierOrderLabel(order: OpsOrder, table: OpsTable) {
 
 function looksInternalOrderId(value: string) {
   return /^order[_-]/i.test(value) || value.length > 42;
+}
+
+function tableIdFromPath(pathname: string) {
+  const match = pathname.match(/\/owner\/operations\/tables\/([^/?#]+)/);
+  return match?.[1] ? decodeURIComponent(match[1]) : "";
+}
+
+function markTableSwitch(label: string) {
+  if (typeof window === "undefined") return;
+  if (window.localStorage.getItem("opsTableSwitchDebug") !== "1") return;
+  window.performance.mark(label);
+  console.debug(`[table-switch] ${label}`, Math.round(window.performance.now()));
 }
 
 function formatOrderTime(value: string | undefined) {

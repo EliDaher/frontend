@@ -1,4 +1,4 @@
-const CACHE_NAME = "restaurant-ops-shell-v1";
+const CACHE_NAME = "restaurant-ops-shell-v2";
 const SHELL_URLS = [
   "/",
   "/owner/operations/orders",
@@ -32,8 +32,12 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
+  if (isNextRouteDataRequest(request, url)) {
+    return;
+  }
+
   if (request.mode === "navigate" || isOpsShellRoute(url.pathname)) {
-    event.respondWith(networkFirst(request));
+    event.respondWith(staleWhileRevalidate(request, navigationFallbackFor(url.pathname)));
     return;
   }
 
@@ -48,17 +52,39 @@ function isOpsShellRoute(pathname) {
     pathname.startsWith("/owner/operations/tables/");
 }
 
-async function networkFirst(request) {
+function isNextRouteDataRequest(request, url) {
+  return url.searchParams.has("_rsc") ||
+    request.headers.get("RSC") === "1" ||
+    request.headers.get("Next-Router-Prefetch") === "1" ||
+    request.headers.has("Next-Router-State-Tree");
+}
+
+function navigationFallbackFor(pathname) {
+  if (pathname.startsWith("/owner/operations/tables/")) return "/owner/operations/tables";
+  if (pathname.startsWith("/owner/operations/orders")) return "/owner/operations/orders";
+  return "/";
+}
+
+async function staleWhileRevalidate(request, fallbackUrl) {
   const cache = await caches.open(CACHE_NAME);
-  try {
-    const response = await fetch(request);
-    if (response.ok) await cache.put(request, response.clone());
-    return response;
-  } catch {
-    const cached = await cache.match(request);
-    if (cached) return cached;
-    return cache.match("/owner/operations/orders") || cache.match("/");
+  const cached = await cache.match(request);
+  const refresh = fetch(request)
+    .then(async (response) => {
+      if (response.ok) await cache.put(request, response.clone());
+      return response;
+    })
+    .catch(() => undefined);
+
+  if (cached) {
+    return cached;
   }
+
+  const response = await refresh;
+  if (response) return response;
+
+  const fallback = await cache.match(fallbackUrl);
+  if (fallback) return fallback;
+  return cache.match("/owner/operations/orders") || cache.match("/");
 }
 
 async function cacheFirst(request) {
