@@ -5,7 +5,7 @@ import { useEffect, useId, useRef } from "react";
 import type { ReactNode } from "react";
 import { cn } from "./OperationalPrimitives";
 
-type PopupFormMaxWidth = "sm" | "md" | "lg" | "xl" | "wide";
+type PopupFormMaxWidth = "sm" | "md" | "lg" | "xl" | "menu" | "wide";
 
 type PopupFormProps = {
   open: boolean;
@@ -14,6 +14,7 @@ type PopupFormProps = {
   description?: string;
   maxWidth?: PopupFormMaxWidth;
   children: ReactNode;
+  footer?: ReactNode;
 };
 
 const maxWidthClasses: Record<PopupFormMaxWidth, string> = {
@@ -21,6 +22,7 @@ const maxWidthClasses: Record<PopupFormMaxWidth, string> = {
   md: "max-w-md",
   lg: "max-w-lg",
   xl: "max-w-xl",
+  menu: "max-w-[900px]",
   wide: "max-w-[min(1100px,94vw)]"
 };
 
@@ -30,7 +32,8 @@ export function PopupForm({
   title,
   description,
   maxWidth = "lg",
-  children
+  children,
+  footer
 }: PopupFormProps) {
   const titleId = useId();
   const descriptionId = useId();
@@ -85,12 +88,13 @@ export function PopupForm({
         ref={panelRef}
         className={cn(
           "max-h-[calc(100dvh-1.5rem)] w-full overflow-hidden rounded-app-xl border border-app-border bg-app-surface text-app-ink shadow-app-dialog sm:max-h-[calc(100dvh-2rem)]",
+          Boolean(footer) && "flex flex-col",
           maxWidthClasses[maxWidth]
         )}
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-3 border-b border-app-border px-4 py-3">
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-app-border px-4 py-3">
           <div>
             <h2 id={titleId} className="text-app-panel-title font-semibold text-app-ink">
               {title}
@@ -110,7 +114,8 @@ export function PopupForm({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="max-h-[calc(100dvh-6.5rem)] overflow-y-auto p-4 sm:max-h-[calc(100dvh-7rem)]">{children}</div>
+        <div className={cn("overflow-y-auto p-4", footer ? "min-h-0 overflow-x-hidden" : "max-h-[calc(100dvh-6.5rem)] sm:max-h-[calc(100dvh-7rem)]")}>{children}</div>
+        {footer ? <div className="shrink-0 border-t border-app-border bg-app-surface px-4 py-3">{footer}</div> : null}
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import { adminBackgroundRequest } from "@/lib/api";
 import type { OpsTable } from "@/types/ops";
+import { sortTablesByNumber } from "@/lib/table-number";
 import { offlineDb } from "../db";
 import { createLocalEntityId, getDeviceId } from "../device";
 import { shouldProtectHydratedRecord } from "../hydration";
@@ -71,7 +72,7 @@ export async function listLocalTables(tenantId: string) {
     .equals(tenantId)
     .filter((table) => !table.deletedAt)
     .toArray();
-  return tables.sort((first, second) => first.name.localeCompare(second.name, "ar"));
+  return sortTablesByNumber(tables);
 }
 
 export async function getLocalTable(tenantId: string, tableId: string) {

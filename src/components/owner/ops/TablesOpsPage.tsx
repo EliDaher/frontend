@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { FormEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AppBadge,
   AppButton,
@@ -17,7 +17,9 @@ import {
   cn
 } from "@/components/shared";
 import { useLiveQuery } from "@/offline/hooks/useLiveQuery";
-import { deleteLocalTable, hydrateTables, listLocalTables, saveLocalTable, type OfflineContext } from "@/offline/repositories/tables";
+import { deleteLocalTable, hydrateTables, listLocalTables, type OfflineContext } from "@/offline/repositories/tables";
+import { saveTableOnline } from "@/lib/table-administration";
+import { duplicateTableNameMessage, isDuplicateTableNumberError, normalizeTableName, validateTableForm } from "@/lib/table-number";
 import type { OpsTable } from "@/types/ops";
 import { OpsShell, useOpsPage } from "./OpsShared";
 import { option, run, tableStatuses } from "./OpsPageShared";
@@ -27,6 +29,10 @@ export function TablesOpsPage() {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("ALL");
   const [editingId, setEditingId] = useState("");
+  const saveLock = useRef(false);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [serverDuplicateKey, setServerDuplicateKey] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [pendingDeleteTable, setPendingDeleteTable] = useState<OpsTable | null>(null);
   const [form, setForm] = useState({ name: "", area: "Main", capacity: 4, status: "AVAILABLE", currentOrderId: "", qrCode: "" });
@@ -50,25 +56,30 @@ export function TablesOpsPage() {
     await hydrateTables(offlineContext);
   }
 
+  const formErrors = validateTableForm(form, tables, tenantId, editingId);
+  const nameError = formErrors.name || (serverDuplicateKey === normalizeTableName(form.name) ? duplicateTableNameMessage : undefined);
+
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!offlineContext) {
-      state.setMessage("تعذر تحديد المطعم الحالي.");
-      return;
-    }
-    await run(state, async () => {
-      await saveLocalTable(offlineContext, {
-        id: editingId || undefined,
-        name: form.name,
-        area: form.area,
-        capacity: form.capacity,
-        status: form.status as OpsTable["status"],
-        currentOrderId: form.currentOrderId,
-        qrCode: form.qrCode
+    if (saveLock.current || nameError || formErrors.capacity) return;
+    if (!offlineContext) { setFormError("تعذر تحديد المطعم الحالي."); return; }
+    saveLock.current = true;
+    setSaving(true);
+    setFormError("");
+    try {
+      const result = await saveTableOnline(offlineContext, {
+        ...form, id: editingId || undefined, status: form.status as OpsTable["status"]
       });
       reset();
       setFormOpen(false);
-    });
+      state.setMessage(result.cacheUpdated ? "تم حفظ الطاولة بنجاح" : "تم حفظ الطاولة على الخادم. تعذر تحديث العرض المحلي؛ أعد تحميل الطاولات عند عودة الاتصال.");
+    } catch (error) {
+      if (isDuplicateTableNumberError(error)) setServerDuplicateKey(normalizeTableName(form.name));
+      else setFormError("تعذر حفظ الطاولة. " + (error instanceof Error ? error.message : "تحقق من الاتصال وحاول مجدداً."));
+    } finally {
+      saveLock.current = false;
+      setSaving(false);
+    }
   }
 
   async function remove(id: string) {
@@ -83,12 +94,16 @@ export function TablesOpsPage() {
   }
 
   function edit(table: OpsTable) {
+    setFormError("");
+    setServerDuplicateKey(null);
     setEditingId(table.id);
     setForm({ name: table.name, area: table.area, capacity: table.capacity, status: table.status, currentOrderId: table.currentOrderId || "", qrCode: table.qrCode || "" });
     setFormOpen(true);
   }
 
   function reset() {
+    setFormError("");
+    setServerDuplicateKey(null);
     setEditingId("");
     setForm({ name: "", area: "Main", capacity: 4, status: "AVAILABLE", currentOrderId: "", qrCode: "" });
   }
@@ -99,6 +114,7 @@ export function TablesOpsPage() {
   }
 
   function closeForm() {
+    if (saveLock.current) return;
     setFormOpen(false);
     reset();
   }
@@ -170,27 +186,30 @@ export function TablesOpsPage() {
       </AppSurface>
 
       <PopupForm open={formOpen} onClose={closeForm} title={editingId ? "تعديل طاولة" : "إضافة طاولة"} maxWidth="md">
-        <form onSubmit={save} className="grid gap-3">
-          <AppFieldShell label="الاسم/الرقم">
-            <AppInput value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-          </AppFieldShell>
-          <AppFieldShell label="المنطقة">
-            <AppInput value={form.area} onChange={(event) => setForm({ ...form, area: event.target.value })} />
-          </AppFieldShell>
-          <AppFieldShell label="السعة">
-            <AppInput type="number" min="1" value={form.capacity} onChange={(event) => setForm({ ...form, capacity: Number(event.target.value) })} />
-          </AppFieldShell>
-          <AppFieldShell label="الحالة">
-            <AppSelect value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
-              {tableStatuses.map((next) => <option key={next} value={next}>{option(next).label}</option>)}
-            </AppSelect>
-          </AppFieldShell>
-          <AppFieldShell label="QR">
-            <AppInput value={form.qrCode} onChange={(event) => setForm({ ...form, qrCode: event.target.value })} />
-          </AppFieldShell>
+        <form noValidate onSubmit={save} className="grid gap-3">
+          <fieldset disabled={saving} className="grid min-w-0 gap-3">
+            <AppFieldShell label="الاسم/الرقم *" errorText={nameError}>
+              <AppInput required error={Boolean(nameError)} value={form.name} onChange={(event) => { setServerDuplicateKey(null); setForm({ ...form, name: event.target.value }); }} />
+            </AppFieldShell>
+            <AppFieldShell label="المنطقة">
+              <AppInput value={form.area} onChange={(event) => setForm({ ...form, area: event.target.value })} />
+            </AppFieldShell>
+            <AppFieldShell label="السعة *" errorText={formErrors.capacity}>
+              <AppInput type="number" min="1" value={form.capacity} onChange={(event) => setForm({ ...form, capacity: Number(event.target.value) })} />
+            </AppFieldShell>
+            <AppFieldShell label="الحالة">
+              <AppSelect value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
+                {tableStatuses.map((next) => <option key={next} value={next}>{option(next).label}</option>)}
+              </AppSelect>
+            </AppFieldShell>
+            <AppFieldShell label="QR">
+              <AppInput value={form.qrCode} onChange={(event) => setForm({ ...form, qrCode: event.target.value })} />
+            </AppFieldShell>
+          </fieldset>
+          {formError ? <p role="alert" className="text-app-helper text-app-danger">{formError}</p> : null}
           <div className="flex gap-2">
-            <AppButton type="submit">{editingId ? "حفظ التعديل" : "إضافة"}</AppButton>
-            <AppButton type="button" variant="secondary" onClick={closeForm}>إلغاء</AppButton>
+            <AppButton type="submit" disabled={saving || Boolean(nameError || formErrors.capacity)} loading={saving}>{editingId ? "حفظ التعديل" : "إضافة"}</AppButton>
+            <AppButton type="button" variant="secondary" disabled={saving} onClick={closeForm}>إلغاء</AppButton>
           </div>
         </form>
       </PopupForm>

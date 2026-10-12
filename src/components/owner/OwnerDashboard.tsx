@@ -16,7 +16,7 @@ import {
   Trash2,
   Utensils
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { MenuTemplateRenderer } from "@/components/menu/MenuTemplateRenderer";
 import {
@@ -35,6 +35,9 @@ import {
 } from "@/components/shared";
 import { OwnerRecipeEditorModal } from "./OwnerRecipeEditorModal";
 import { FormErrors, IconButton, MessageBox, Warning } from "./OwnerDashboardParts";
+import { validateMenuItem, submitMenuItem } from "./menu-item-form";
+import type { ItemField } from "./menu-item-form";
+import { resolveNewItemCategory } from "./menu-item-category";
 import { adminRequest } from "@/lib/api";
 import { formatInteger, formatMoney } from "@/lib/format";
 import { normalizeModules } from "@/lib/modules";
@@ -127,6 +130,17 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
   const [editingCategoryId, setEditingCategoryId] = useState("");
   const [editingItemId, setEditingItemId] = useState("");
   const [categoryFormOpen, setCategoryFormOpen] = useState(false);
+  const rememberedCategories = useRef<Record<string, string>>({});
+  const itemSaveLock = useRef(false);
+  const itemUploadLock = useRef(false);
+  const itemFormOpenRef = useRef(false);
+  const itemFormRef = useRef<HTMLFormElement>(null);
+  const [itemTouched, setItemTouched] = useState<Partial<Record<ItemField, boolean>>>({});
+  const [itemAttempted, setItemAttempted] = useState(false);
+  const [itemNotification, setItemNotification] = useState(false);
+  const [itemSaving, setItemSaving] = useState(false);
+  const [failedItemImage, setFailedItemImage] = useState("");
+  const [itemSaveError, setItemSaveError] = useState("");
   const [itemFormOpen, setItemFormOpen] = useState(false);
   const [pendingDeleteCategory, setPendingDeleteCategory] = useState<Category | null>(null);
   const [pendingDeleteItem, setPendingDeleteItem] = useState<MenuItem | null>(null);
@@ -157,7 +171,10 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
     });
   }, [items, categoryFilter, normalizedQuery]);
 
-  const itemErrors = getItemErrors(itemForm, categories);
+  const itemFieldErrors = validateMenuItem(itemForm, categories);
+  const itemErrors = Object.values(itemFieldErrors);
+  const visibleItemError = (field: ItemField) => itemAttempted || itemTouched[field] ? itemFieldErrors[field] : undefined;
+  const touchItemField = (field: ItemField) => setItemTouched((current) => ({ ...current, [field]: true }));
   const categoryErrors = getCategoryErrors(categoryForm);
   const detailsErrors = getDetailsErrors(form);
   const activePageHeader = {
@@ -178,8 +195,18 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
     void refresh(storedToken);
   }, []);
 
+  useEffect(() => {
+    if (!itemNotification || !message) return;
+    const timer = window.setTimeout(() => {
+      setMessage(null);
+      setItemNotification(false);
+    }, 3000);
+    return () => window.clearTimeout(timer);
+  }, [itemNotification, message]);
+
   async function run(action: () => Promise<void>, success?: string) {
     setBusy(true);
+    setItemNotification(false);
     setMessage(null);
     try {
       await action();
@@ -215,7 +242,12 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
       setInventoryItems(nextInventoryItems);
       setRecipes(nextRecipes);
       resetCategoryForm();
-      resetItemForm(nextCategories);
+      if (restaurant && restaurant.id !== nextRestaurant.id) {
+        setCategoryFilter("all");
+        itemFormOpenRef.current = false;
+        setItemFormOpen(false);
+      }
+      if (!itemFormOpenRef.current) resetItemForm(nextCategories, nextRestaurant.id);
     });
   }
 
@@ -283,21 +315,46 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
 
   async function saveItem(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (itemErrors.length) return;
-    const path = editingItemId ? `/api/owner/items/${editingItemId}` : "/api/owner/items";
-    await run(async () => {
-      await adminRequest(path, token, {
-        method: editingItemId ? "PATCH" : "POST",
-        body: JSON.stringify({
-          ...itemForm,
-          name: itemForm.name.trim(),
-          description: itemForm.description.trim(),
-          image: itemForm.image.trim(),
-          isFeatured: restaurant?.plan === "premium" ? itemForm.isFeatured : false
-        })
-      });
-      await refresh();
-    }, editingItemId ? "تم تحديث الصنف." : "تمت إضافة الصنف.");
+    setItemAttempted(true);
+    if (busy || itemUploadLock.current || atItemLimit) return;
+    const isEditing = Boolean(editingItemId);
+    const path = isEditing ? `/api/owner/items/${editingItemId}` : "/api/owner/items";
+    await submitMenuItem({
+      lock: itemSaveLock,
+      draft: itemForm,
+      categories,
+      editingId: editingItemId,
+      premium: restaurant?.plan === "premium",
+      write: (payload) => adminRequest<{ id?: string; ok?: boolean }>(path, token, {
+        method: isEditing ? "PATCH" : "POST", body: JSON.stringify(payload)
+      }),
+      onStart: () => {
+        setItemSaving(true);
+        setItemSaveError("");
+        setMessage(null);
+      },
+      onSuccess: ({ item, nextDraft, message: successMessage }) => {
+        setItems((current) => isEditing
+          ? current.map((entry) => entry.id === editingItemId ? { ...entry, ...item } : entry)
+          : [...current, item]);
+        if (nextDraft) {
+          if (restaurant) rememberedCategories.current[restaurant.id] = nextDraft.categoryId;
+          setItemForm(nextDraft);
+          setFailedItemImage("");
+          setItemTouched({});
+          setItemAttempted(false);
+          window.requestAnimationFrame(() => itemFormRef.current?.querySelector<HTMLInputElement>("[data-autofocus]")?.focus());
+        } else {
+          itemFormOpenRef.current = false;
+          setItemFormOpen(false);
+          resetItemForm();
+        }
+        setItemNotification(true);
+        setMessage({ type: "success", text: successMessage });
+      },
+      onError: (error) => setItemSaveError("تعذر حفظ الصنف. تحقق من الاتصال وحاول مجدداً. " + (error instanceof Error ? error.message : "")),
+      onFinish: () => setItemSaving(false)
+    });
   }
 
   async function removeItem(itemId: string) {
@@ -473,7 +530,11 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
           })}
         </nav>
 
-        {message ? <MessageBox message={message} /> : null}
+        {message ? itemNotification ? (
+          <div role="status" aria-live="polite" className="pointer-events-none fixed inset-x-3 top-4 z-[60] mx-auto w-fit max-w-[calc(100vw-1.5rem)]">
+            <MessageBox message={message} />
+          </div>
+        ) : <MessageBox message={message} /> : null}
 
         {activeTab === "items" ? (
           <AppSurface className="p-4">
@@ -713,92 +774,115 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
           open={itemFormOpen}
           onClose={closeItemForm}
           title={editingItemId ? "تعديل صنف" : "إضافة صنف"}
-          description="أدخل البيانات الأساسية فقط. لا يمكن حفظ الصنف بدون اسم، سعر صحيح، وقسم."
-          maxWidth="xl"
+          description="الحقول المميزة بـ * مطلوبة."
+          maxWidth="menu"
+          footer={
+            <div className="flex justify-end gap-2">
+              <AppButton type="button" variant="secondary" disabled={itemSaving || busy} onClick={closeItemForm}>إلغاء</AppButton>
+              <AppButton type="submit" form="menu-item-form" disabled={itemSaving || busy || atItemLimit || itemErrors.length > 0} loading={itemSaving} iconStart={<Save className="h-4 w-4" />}>
+                {itemSaving ? "جاري الحفظ..." : "حفظ الصنف"}
+              </AppButton>
+            </div>
+          }
         >
           {categories.length === 0 ? (
             <Warning text="أضف قسماً أولاً قبل إضافة الأصناف." />
           ) : null}
           {atItemLimit ? <Warning text={"وصلت إلى حد الأصناف في باقة " + planLabels[restaurant.plan] + "."} /> : null}
-          <form onSubmit={saveItem} className="grid gap-4">
-            <ProductFormSection title="المعلومات الأساسية">
-              <AppFieldShell label="اسم المنتج">
-                <AppInput
-                  value={itemForm.name}
-                  onChange={(event) => setItemForm({ ...itemForm, name: event.target.value })}
-                  placeholder="مثال: برغر كلاسيك"
-                  error={itemErrors.some((error) => error.includes("اسم الصنف"))}
-                />
-              </AppFieldShell>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <AppFieldShell label="السعر">
+          <form ref={itemFormRef} noValidate id="menu-item-form" onSubmit={saveItem} className="grid min-w-0 gap-3">
+            <fieldset disabled={itemSaving || busy} className="grid min-w-0 gap-4 md:grid-cols-2">
+              <ProductFormSection compact title="المعلومات الأساسية">
+                <AppFieldShell className="min-w-0" label="اسم الصنف *" errorText={visibleItemError("name")}>
                   <AppInput
-                    value={Number.isFinite(itemForm.price) ? itemForm.price : 0}
-                    onChange={(event) => setItemForm({ ...itemForm, price: Number(event.target.value) })}
-                    type="number"
-                    min="0"
-                    inputMode="decimal"
-                    error={itemErrors.some((error) => error.includes("السعر"))}
+                    data-autofocus
+                    required
+                    onBlur={() => touchItemField("name")}
+                    value={itemForm.name}
+                    onChange={(event) => setItemForm({ ...itemForm, name: event.target.value })}
+                    placeholder="مثال: برغر كلاسيك"
+                    error={Boolean(visibleItemError("name"))}
                   />
                 </AppFieldShell>
-                <AppFieldShell label="الترتيب">
-                  <AppInput
-                    value={Number.isFinite(itemForm.order) ? itemForm.order : 0}
-                    onChange={(event) => setItemForm({ ...itemForm, order: Number(event.target.value) })}
-                    type="number"
-                    min="0"
-                    inputMode="numeric"
-                  />
-                </AppFieldShell>
-              </div>
-              <AppFieldShell label="القسم">
-                <AppSelect
-                  value={itemForm.categoryId}
-                  onChange={(event) => setItemForm({ ...itemForm, categoryId: event.target.value })}
-                  error={itemErrors.some((error) => error.includes("القسم"))}
-                >
-                  <option value="">اختر قسماً</option>
-                  {categories.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </AppSelect>
-              </AppFieldShell>
-              <AppFieldShell label="الوصف">
-                <AppTextarea
-                  value={itemForm.description}
-                  onChange={(event) => setItemForm({ ...itemForm, description: event.target.value })}
-                />
-              </AppFieldShell>
-            </ProductFormSection>
-
-            <ProductFormSection title="الصورة">
-              <div className="grid gap-3 sm:grid-cols-[72px_1fr] sm:items-start">
-                <div className="grid h-[72px] w-[72px] place-items-center overflow-hidden rounded-app-lg border border-app-border bg-app-surface-muted text-app-muted">
-                  {itemForm.image ? (
-                    <img src={itemForm.image} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <ImageIcon className="h-6 w-6" />
-                  )}
-                </div>
-                <div className="grid gap-3">
-                  <AppFieldShell label="رابط الصورة">
+                  <AppFieldShell className="min-w-0" label="السعر *" errorText={visibleItemError("price")}>
                     <AppInput
-                      value={itemForm.image}
-                      onChange={(event) => setItemForm({ ...itemForm, image: event.target.value })}
-                      placeholder="https://..."
+                      onBlur={() => touchItemField("price")}
+                    value={Number.isFinite(itemForm.price) ? itemForm.price : 0}
+                      onChange={(event) => setItemForm({ ...itemForm, price: Number(event.target.value) })}
                       dir="ltr"
+                      lang="en"
+                      type="number"
+                      min="0"
+                      step="any"
+                      inputMode="decimal"
+                      error={Boolean(visibleItemError("price"))}
                     />
                   </AppFieldShell>
-                  <ProductImageUpload
-                    onUpload={(file) => uploadImage(file, (url) => setItemForm((current) => ({ ...current, image: url })))}
-                  />
-                </div>
-              </div>
-            </ProductFormSection>
+                <AppFieldShell className="min-w-0" label="القسم *" errorText={visibleItemError("categoryId")}>
+                  <AppSelect
+                    onBlur={() => touchItemField("categoryId")}
+                    value={itemForm.categoryId}
+                    onChange={(event) => setItemForm({ ...itemForm, categoryId: event.target.value })}
+                    error={Boolean(visibleItemError("categoryId"))}
+                  >
+                    <option value="">اختر قسماً</option>
+                    {categories.filter((category) => category.isActive || (Boolean(editingItemId) && category.id === itemForm.categoryId)).map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </AppSelect>
+                </AppFieldShell>
+                  <AppFieldShell className="min-w-0" label="الترتيب" errorText={visibleItemError("order")}>
+                    <AppInput
+                      onBlur={() => touchItemField("order")}
+                    value={Number.isFinite(itemForm.order) ? itemForm.order : 0}
+                      onChange={(event) => setItemForm({ ...itemForm, order: Number(event.target.value) })}
+                      dir="ltr"
+                      lang="en"
+                      type="number"
+                      min="0"
+                      inputMode="numeric"
+                      error={Boolean(visibleItemError("order"))}
+                    />
+                  </AppFieldShell>
+              </ProductFormSection>
 
-            <ProductFormSection title="الحالة والوسوم">
+              <ProductFormSection compact title="تفاصيل إضافية">
+                <AppFieldShell className="min-w-0" label="الوصف">
+                  <AppTextarea
+                    className="!min-h-0 resize-y"
+                    rows={3}
+                    value={itemForm.description}
+                    onChange={(event) => setItemForm({ ...itemForm, description: event.target.value })}
+                  />
+                </AppFieldShell>
+
+                <div className="grid gap-3 sm:grid-cols-[72px_minmax(0,1fr)] sm:items-start">
+                  <div className="grid h-[72px] w-[72px] place-items-center overflow-hidden rounded-app-lg border border-app-border bg-app-surface-muted text-app-muted">
+                    {itemForm.image && failedItemImage !== itemForm.image ? (
+                      <img src={itemForm.image} onError={() => setFailedItemImage(itemForm.image)} alt="صورة الصنف" className="h-full w-full object-cover" />
+                    ) : (
+                      <ImageIcon className="h-6 w-6" />
+                    )}
+                  </div>
+                  <div className="grid min-w-0 gap-2">
+                    <AppFieldShell className="min-w-0" label="رابط الصورة">
+                      <AppInput
+                        value={itemForm.image}
+                        onChange={(event) => setItemForm({ ...itemForm, image: event.target.value })}
+                        placeholder="https://..."
+                        dir="ltr"
+                      />
+                    </AppFieldShell>
+                    <ProductImageUpload
+                      onUpload={(file) => void uploadItemImage(file)}
+                    />
+                  </div>
+                </div>
+              </ProductFormSection>
+
+            <section className="grid min-w-0 gap-2 border-t border-app-border pt-3 md:col-span-2">
+              <h3 className="text-app-label font-semibold">الحالة والوسوم</h3>
               <div className="flex flex-wrap gap-2">
                 <ProductToggle checked={itemForm.isAvailable} label="متاح" onChange={(isAvailable) => setItemForm({ ...itemForm, isAvailable })} />
                 <ProductToggle
@@ -812,17 +896,11 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
                 ))}
               </div>
               {restaurant.plan !== "premium" ? <p className="text-app-helper text-app-muted">تمييز الأصناف متاح فقط في باقة Premium.</p> : null}
-            </ProductFormSection>
+            </section>
 
-            <FormErrors errors={itemErrors} />
-            <div className="flex flex-wrap gap-2 border-t border-app-border pt-4">
-              <AppButton type="submit" disabled={busy || itemErrors.length > 0 || atItemLimit} loading={busy} iconStart={<Save className="h-4 w-4" />}>
-                {editingItemId ? "حفظ التعديل" : "إضافة الصنف"}
-              </AppButton>
-              <AppButton type="button" variant="secondary" onClick={closeItemForm}>
-                إلغاء
-              </AppButton>
-            </div>
+            </fieldset>
+            {itemAttempted ? <FormErrors errors={itemErrors} /> : <p className="text-app-helper text-app-muted">للحفظ، أدخل الاسم والسعر الأكبر من صفر واختر القسم، مع ترتيب صحيح.</p>}
+            {itemSaveError ? <div role="alert"><Warning text={itemSaveError} /></div> : null}
           </form>
         </PopupForm>
 
@@ -981,17 +1059,23 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
   }
 
   function openNewItemForm() {
-    resetItemForm(categories);
+    resetItemForm(categories, restaurant?.id, categoryFilter);
     setActiveTab("items");
+    itemFormOpenRef.current = true;
     setItemFormOpen(true);
   }
 
   function closeItemForm() {
+    if (itemSaveLock.current || itemUploadLock.current || busy) return;
+    itemFormOpenRef.current = false;
     setItemFormOpen(false);
     resetItemForm(categories);
   }
 
   function editItem(item: MenuItem) {
+    setItemSaveError("");
+    setItemTouched({});
+    setItemAttempted(false);
     setEditingItemId(item.id);
     setItemForm({
       name: item.name,
@@ -1005,12 +1089,17 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
       badges: item.badges
     });
     setActiveTab("items");
+    itemFormOpenRef.current = true;
     setItemFormOpen(true);
   }
 
-  function resetItemForm(nextCategories = categories) {
+  function resetItemForm(nextCategories = categories, restaurantId = restaurant?.id, explicitCategory?: string) {
     setEditingItemId("");
-    setItemForm({ ...emptyItem, categoryId: nextCategories[0]?.id ?? "" });
+    setItemSaveError("");
+    setItemTouched({});
+    setItemAttempted(false);
+    setFailedItemImage("");
+    setItemForm({ ...emptyItem, categoryId: resolveNewItemCategory(nextCategories, rememberedCategories.current, restaurantId, explicitCategory) });
   }
 
   function toggleBadge(badge: ItemForm["badges"][number]) {
@@ -1020,6 +1109,26 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
         ? itemForm.badges.filter((current) => current !== badge)
         : [...itemForm.badges, badge]
     });
+  }
+
+  async function uploadItemImage(file: File) {
+    if (itemUploadLock.current || itemSaveLock.current || busy) return;
+    itemUploadLock.current = true;
+    setBusy(true);
+    setItemSaveError("");
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      const result = await adminRequest<{ url: string }>("/api/owner/uploads/image", token, {
+        method: "POST",
+        body: JSON.stringify({ fileName: file.name, dataUrl })
+      });
+      setItemForm((current) => ({ ...current, image: result.url }));
+    } catch (error) {
+      setItemSaveError("تعذر رفع الصورة. حاول مجدداً. " + (error instanceof Error ? error.message : ""));
+    } finally {
+      itemUploadLock.current = false;
+      setBusy(false);
+    }
   }
 
   async function uploadImage(file: File, onDone: (url: string) => void) {
@@ -1399,9 +1508,9 @@ function ProductActions({
   );
 }
 
-function ProductFormSection({ title, children }: { title: string; children: ReactNode }) {
+function ProductFormSection({ title, children, compact = false }: { title: string; children: ReactNode; compact?: boolean }) {
   return (
-    <section className="grid gap-3 border-b border-app-border pb-4 last:border-b-0 last:pb-0">
+    <section className={cn("grid gap-3", compact ? "min-w-0 content-start" : "border-b border-app-border pb-4 last:border-b-0 last:pb-0")}>
       <h3 className="text-app-panel-title font-semibold text-app-ink">{title}</h3>
       {children}
     </section>
@@ -1488,15 +1597,6 @@ function toRestaurantForm(restaurant: Restaurant): RestaurantForm {
     template: normalizeTemplate(restaurant.plan, restaurant.template),
     theme: restaurant.theme ?? defaultTheme
   };
-}
-
-function getItemErrors(item: ItemForm, categories: Category[]) {
-  const errors: string[] = [];
-  if (!item.name.trim()) errors.push("اسم الصنف مطلوب.");
-  if (!Number.isFinite(item.price) || item.price <= 0) errors.push("السعر يجب أن يكون أكبر من صفر.");
-  if (!item.categoryId) errors.push("اختر قسماً للصنف.");
-  if (item.categoryId && !categories.some((category) => category.id === item.categoryId)) errors.push("القسم المحدد غير موجود.");
-  return errors;
 }
 
 function getCategoryErrors(category: CategoryForm) {

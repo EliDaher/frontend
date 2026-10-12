@@ -6,12 +6,14 @@ import type { FormEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MoreHorizontal, Minus, Plus, Search, StickyNote, Trash2 } from "lucide-react";
 import { AppBadge, AppButton, AppEmptyState, AppFieldShell, AppInput, AppSelect, AppSurface, AppTextarea, PopupForm, cn } from "@/components/shared";
+import { saveTableOnline } from "@/lib/table-administration";
+import { duplicateTableNameMessage, isDuplicateTableNumberError, normalizeTableName, sortTablesByNumber, validateTableForm } from "@/lib/table-number";
 import { formatInteger } from "@/lib/format";
 import { createActionGuard } from "@/offline/action-guard";
 import { useLiveQuery } from "@/offline/hooks/useLiveQuery";
 import { cancelLocalOrder, completeLocalOrder, createLocalOrder, getLocalOrder, hydrateOrders, listLocalOrders, updateLocalOrder, type OrderCreateInput } from "@/offline/repositories/orders";
 import { hydrateReferenceData, listLocalCashRegisters, listLocalCategories, listLocalMenuItems, listLocalRecipeIngredients } from "@/offline/repositories/reference-data";
-import { getLocalTable, hydrateTables, listLocalTables, saveLocalTable, type OfflineContext } from "@/offline/repositories/tables";
+import { getLocalTable, hydrateTables, listLocalTables, type OfflineContext } from "@/offline/repositories/tables";
 import type { Category, MenuItem, Restaurant } from "@/types/menu";
 import type { CashRegister, OpsOrder, OpsTable, OrderStatus, PaymentMethod, RecipeIngredient } from "@/types/ops";
 import { money, orderStatusLabels, OpsShell, paymentAmountForMethod, useOpsPage } from "./OpsShared";
@@ -66,6 +68,10 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
   const router = useRouter();
   const state = useOpsPage("tables");
   const [activeTableId, setActiveTableId] = useState(tableId);
+  const tableSaveLock = useRef(false);
+  const [tableSaving, setTableSaving] = useState(false);
+  const [tableSaveError, setTableSaveError] = useState("");
+  const [tableServerDuplicateKey, setTableServerDuplicateKey] = useState<string | null>(null);
   const [tableFormOpen, setTableFormOpen] = useState(false);
   const [tableForm, setTableForm] = useState({ name: "", area: "", capacity: 1, status: "AVAILABLE", qrCode: "" });
   const [orderForm, setOrderForm] = useState({ name: "", tableId: "", type: "DINE_IN", status: "PENDING", discount: 0, tax: 0, serviceCharge: 0, paymentMethod: "CASH", notes: "" });
@@ -146,7 +152,7 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
   }, [addCart]);
   const startPicker = useMenuPickerData(menuItems, categories, startItemQuery, activeStartCategoryId);
   const addPicker = useMenuPickerData(menuItems, categories, addItemQuery, activeAddCategoryId);
-  const railTables = useMemo(() => sortTablesForNavigation(tables), [tables]);
+  const railTables = useMemo(() => sortTablesByNumber(tables), [tables]);
   const lastTableId = recentTableIds.find((id) => id !== activeTableId) ?? "";
   const lastTable = tables.find((entry) => entry.id === lastTableId) ?? null;
   const lastTableOrder = lastTable?.currentOrderId ? orderById.get(lastTable.currentOrderId) ?? null : null;
@@ -190,8 +196,8 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
   }, [recentTablesKey, activeTableId]);
 
   useEffect(() => {
-    if (table) hydrateTableForm(table);
-  }, [table]);
+    if (table && !tableFormOpen) hydrateTableForm(table);
+  }, [table, tableFormOpen]);
 
   useEffect(() => {
     if (table) markTableSwitch(`table-ready:${activeTableId}`);
@@ -283,31 +289,43 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
     setOrderNotesOpen(Boolean(nextOrder.notes));
   }
 
+  const tableFieldErrors = validateTableForm(tableForm, tables, tenantId, table?.id);
+  const tableNameError = tableFieldErrors.name || (tableServerDuplicateKey === normalizeTableName(tableForm.name) ? duplicateTableNameMessage : undefined);
+
   function openTableForm() {
+    setTableSaveError("");
+    setTableServerDuplicateKey(null);
     if (table) hydrateTableForm(table);
     setTableFormOpen(true);
   }
 
   function closeTableForm() {
+    if (tableSaveLock.current) return;
+    setTableSaveError("");
+    setTableServerDuplicateKey(null);
     setTableFormOpen(false);
     if (table) hydrateTableForm(table);
   }
 
   async function saveTable(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await runLocal(async () => {
-      if (!offlineContext || !table) return;
-      await saveLocalTable(offlineContext, {
-        id: table.id,
-        name: tableForm.name,
-        area: tableForm.area,
-        capacity: tableForm.capacity,
-        status: tableForm.status as OpsTable["status"],
-        currentOrderId: table.currentOrderId,
-        qrCode: tableForm.qrCode
+    if (tableSaveLock.current || tableNameError || tableFieldErrors.capacity || !offlineContext || !table) return;
+    tableSaveLock.current = true;
+    setTableSaving(true);
+    setTableSaveError("");
+    try {
+      const result = await saveTableOnline(offlineContext, {
+        ...tableForm, id: table.id, status: tableForm.status as OpsTable["status"], currentOrderId: table.currentOrderId
       });
       setTableFormOpen(false);
-    });
+      state.setMessage(result.cacheUpdated ? "تم حفظ الطاولة بنجاح" : "تم حفظ الطاولة على الخادم. تعذر تحديث العرض المحلي؛ أعد تحميل الطاولات عند عودة الاتصال.");
+    } catch (error) {
+      if (isDuplicateTableNumberError(error)) setTableServerDuplicateKey(normalizeTableName(tableForm.name));
+      else setTableSaveError("تعذر حفظ الطاولة. " + (error instanceof Error ? error.message : "تحقق من الاتصال وحاول مجدداً."));
+    } finally {
+      tableSaveLock.current = false;
+      setTableSaving(false);
+    }
   }
 
   function openStartOrder() {
@@ -782,27 +800,30 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
       </PopupForm>
 
       <PopupForm open={tableFormOpen} onClose={closeTableForm} title="تعديل الطاولة" maxWidth="md">
-        <form onSubmit={saveTable} className="grid gap-3">
-          <AppFieldShell label="الاسم/الرقم">
-            <AppInput value={tableForm.name} onChange={(event) => setTableForm({ ...tableForm, name: event.target.value })} />
-          </AppFieldShell>
-          <AppFieldShell label="المنطقة">
-            <AppInput value={tableForm.area} onChange={(event) => setTableForm({ ...tableForm, area: event.target.value })} />
-          </AppFieldShell>
-          <AppFieldShell label="السعة">
-            <AppInput type="number" min="1" value={tableForm.capacity} onChange={(event) => setTableForm({ ...tableForm, capacity: Number(event.target.value) })} />
-          </AppFieldShell>
-          <AppFieldShell label="الحالة">
-            <AppSelect value={tableForm.status} onChange={(event) => setTableForm({ ...tableForm, status: event.target.value })}>
-              {tableStatuses.map((status) => <option key={status} value={status}>{option(status).label}</option>)}
-            </AppSelect>
-          </AppFieldShell>
-          <AppFieldShell label="QR">
-            <AppInput value={tableForm.qrCode} onChange={(event) => setTableForm({ ...tableForm, qrCode: event.target.value })} />
-          </AppFieldShell>
+        <form noValidate onSubmit={saveTable} className="grid gap-3">
+          <fieldset disabled={tableSaving} className="grid min-w-0 gap-3">
+            <AppFieldShell label="الاسم/الرقم *" errorText={tableNameError}>
+              <AppInput required error={Boolean(tableNameError)} value={tableForm.name} onChange={(event) => { setTableServerDuplicateKey(null); setTableForm({ ...tableForm, name: event.target.value }); }} />
+            </AppFieldShell>
+            <AppFieldShell label="المنطقة">
+              <AppInput value={tableForm.area} onChange={(event) => setTableForm({ ...tableForm, area: event.target.value })} />
+            </AppFieldShell>
+            <AppFieldShell label="السعة *" errorText={tableFieldErrors.capacity}>
+              <AppInput type="number" min="1" value={tableForm.capacity} onChange={(event) => setTableForm({ ...tableForm, capacity: Number(event.target.value) })} />
+            </AppFieldShell>
+            <AppFieldShell label="الحالة">
+              <AppSelect value={tableForm.status} onChange={(event) => setTableForm({ ...tableForm, status: event.target.value })}>
+                {tableStatuses.map((status) => <option key={status} value={status}>{option(status).label}</option>)}
+              </AppSelect>
+            </AppFieldShell>
+            <AppFieldShell label="QR">
+              <AppInput value={tableForm.qrCode} onChange={(event) => setTableForm({ ...tableForm, qrCode: event.target.value })} />
+            </AppFieldShell>
+          </fieldset>
+          {tableSaveError ? <p role="alert" className="text-app-helper text-app-danger">{tableSaveError}</p> : null}
           <div className="flex flex-col-reverse gap-2 sm:flex-row">
-            <AppButton type="button" variant="secondary" onClick={closeTableForm} className="w-full sm:w-auto">إلغاء</AppButton>
-            <AppButton type="submit" className="w-full sm:w-auto">حفظ الطاولة</AppButton>
+            <AppButton type="button" variant="secondary" disabled={tableSaving} onClick={closeTableForm} className="w-full sm:w-auto">إلغاء</AppButton>
+            <AppButton type="submit" disabled={tableSaving || Boolean(tableNameError || tableFieldErrors.capacity)} loading={tableSaving} className="w-full sm:w-auto">حفظ الطاولة</AppButton>
           </div>
         </form>
       </PopupForm>
@@ -1475,12 +1496,6 @@ function formatOrderTime(value: string | undefined) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "";
   return parsed.toLocaleTimeString("ar-SY-u-nu-latn", { hour: "2-digit", minute: "2-digit" });
-}
-
-const tableNameCollator = new Intl.Collator("ar", { numeric: true, sensitivity: "base" });
-
-function sortTablesForNavigation(tables: OpsTable[]) {
-  return [...tables].sort((first, second) => tableNameCollator.compare(first.name, second.name) || first.id.localeCompare(second.id));
 }
 
 function readRecentTableIds(key: string) {
