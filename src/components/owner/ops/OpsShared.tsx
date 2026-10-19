@@ -167,6 +167,7 @@ export function OpsShell({
 
 const opsLinks = [
   { href: "/owner/operations/tables", label: "الطاولات" },
+  { href: "/owner/operations/table-history", label: "سجل الطاولات" },
   { href: "/owner/operations/orders", label: "الطلبات" },
   { href: "/owner/operations/inventory", label: "المخزون" },
   { href: "/owner/operations/suppliers", label: "الموردون" },

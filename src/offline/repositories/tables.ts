@@ -21,7 +21,8 @@ export async function hydrateTables(context: OfflineContext) {
   return listLocalTables(context.tenantId);
 }
 
-export async function refreshTables(context: OfflineContext) {
+export async function refreshTables(context: OfflineContext, strict = false) {
+  if (strict) return pullTables(context, true);
   const current = tableRefreshes.get(context.tenantId);
   if (current) return current;
 
@@ -34,7 +35,7 @@ export async function refreshTables(context: OfflineContext) {
   return refresh;
 }
 
-async function pullTables(context: OfflineContext) {
+async function pullTables(context: OfflineContext, strict = false) {
   try {
     const remoteTables = await adminBackgroundRequest<OpsTable[]>("/api/owner/ops/tables", context.token);
     const now = new Date().toISOString();
@@ -61,7 +62,8 @@ async function pullTables(context: OfflineContext) {
       }
     });
     return listLocalTables(context.tenantId);
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     return listLocalTables(context.tenantId);
   }
 }

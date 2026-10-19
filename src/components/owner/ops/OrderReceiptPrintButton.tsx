@@ -102,8 +102,12 @@ export function OrderReceiptPrintButton({
   restaurant,
   table,
   token,
+  invoiceSnapshot,
+  requireInvoice = false,
   disabled = false
 }: {
+  invoiceSnapshot?: ReceiptInvoiceSnapshot;
+  requireInvoice?: boolean;
   order: OpsOrder;
   restaurant: Restaurant | null;
   table?: OpsTable | null;
@@ -120,7 +124,7 @@ export function OrderReceiptPrintButton({
     undefined as ReceiptInvoiceSnapshot | undefined,
     [order.invoiceId]
   );
-  const receiptInvoice = printInvoiceOverride ?? invoice;
+  const receiptInvoice = invoiceSnapshot ?? printInvoiceOverride ?? invoice;
   const receipt = useMemo(() => buildReceipt(order, restaurant, table, receiptInvoice), [order, restaurant, table, receiptInvoice]);
   const handlePrint = useReactToPrint({
     contentRef: printRef,
@@ -164,6 +168,10 @@ export function OrderReceiptPrintButton({
 
   async function printReceipt() {
     setPrintError("");
+    if (requireInvoice && (!receiptInvoice || receiptInvoice.id !== order.invoiceId || receiptInvoice.status === "VOID")) {
+      setPrintError("تعذر تحميل الفاتورة المحفوظة. أعد المحاولة قبل الطباعة.");
+      return;
+    }
     try {
       if (order.invoiceId && !receiptInvoice) {
         const loadedInvoice = await offlineDb.invoices.get(order.invoiceId) as ReceiptInvoiceSnapshot | undefined;
@@ -190,7 +198,7 @@ export function OrderReceiptPrintButton({
         onClick={() => void printReceipt()}
         iconStart={!printing ? <Printer className="h-4 w-4" /> : undefined}
       >
-        {printing ? "جاري الطباعة..." : "طباعة"}
+        {printing ? "جاري الطباعة..." : requireInvoice ? "طباعة الفاتورة" : "طباعة"}
       </AppButton>
       {printError ? <span className="basis-full text-app-helper font-semibold text-app-danger">{printError}</span> : null}
       <div ref={printRef} className="receipt-print-source" aria-hidden="true">

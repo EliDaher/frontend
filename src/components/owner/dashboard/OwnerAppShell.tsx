@@ -38,6 +38,7 @@ const navItems: NavItem[] = [
   { label: "المنيو", href: "/owner/menu", icon: Utensils, module: "menu" },
   { label: "الطلبات", href: "/owner/operations/orders", icon: ShoppingCart, module: "orders" },
   { label: "الطاولات", href: "/owner/operations/tables", icon: Table2, module: "tables" },
+  { label: "سجل الطاولات", href: "/owner/operations/table-history", icon: Table2, module: "tables" },
   { label: "المخزون", href: "/owner/operations/inventory", icon: Boxes, module: "inventory" },
   { label: "الموردون", href: "/owner/operations/suppliers", icon: Building2, module: "purchasing" },
   { label: "الفواتير", href: "/owner/operations/invoices", icon: FileText, module: "accounting" },
@@ -49,9 +50,9 @@ const navItems: NavItem[] = [
 const navGroups: Array<{ label: string; items: NavItem[] }> = [
   { label: "الرئيسية", items: [navItems[0]] },
   { label: "إدارة المطعم", items: [navItems[1]] },
-  { label: "الطلبات والمبيعات", items: [navItems[2], navItems[3]] },
-  { label: "المخزون والمحاسبة", items: [navItems[4], navItems[5], navItems[6], navItems[7], navItems[8]] },
-  { label: "الإعدادات", items: [navItems[9]] }
+  { label: "الطلبات والمبيعات", items: [navItems[2], navItems[3], navItems[4]] },
+  { label: "المخزون والمحاسبة", items: [navItems[5], navItems[6], navItems[7], navItems[8], navItems[9]] },
+  { label: "الإعدادات", items: [navItems[10]] }
 ];
 
 function isNavItemActive(pathname: string, href: string) {

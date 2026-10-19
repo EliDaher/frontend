@@ -48,7 +48,8 @@ export async function hydrateOrders(context: OfflineContext) {
   return listLocalOrders(context.tenantId);
 }
 
-export async function refreshOrders(context: OfflineContext) {
+export async function refreshOrders(context: OfflineContext, strict = false) {
+  if (strict) return pullOrders(context, true);
   const current = orderRefreshes.get(context.tenantId);
   if (current) return current;
 
@@ -61,7 +62,7 @@ export async function refreshOrders(context: OfflineContext) {
   return refresh;
 }
 
-async function pullOrders(context: OfflineContext) {
+async function pullOrders(context: OfflineContext, strict = false) {
   try {
     const remoteOrders = await adminBackgroundRequest<OpsOrder[]>("/api/owner/ops/orders", context.token);
     const now = new Date().toISOString();
@@ -88,7 +89,8 @@ async function pullOrders(context: OfflineContext) {
       }
     });
     return listLocalOrders(context.tenantId);
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     return listLocalOrders(context.tenantId);
   }
 }
