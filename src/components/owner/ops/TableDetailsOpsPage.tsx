@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MoreHorizontal, Minus, Plus, Search, StickyNote, Trash2 } from "lucide-react";
+import { Info, MoreHorizontal, Minus, Plus, Search, StickyNote, Trash2 } from "lucide-react";
 import { AppBadge, AppButton, AppEmptyState, AppFieldShell, AppInput, AppSelect, AppSurface, AppTextarea, PopupForm, cn } from "@/components/shared";
 import { saveTableOnline } from "@/lib/table-administration";
 import { duplicateTableNameMessage, isDuplicateTableNumberError, normalizeTableName, sortTablesByNumber, validateTableForm } from "@/lib/table-number";
@@ -1661,7 +1661,7 @@ function MenuItemSelectionPanel({
                   <div
                     key={item.id}
                     className={cn(
-                      "grid min-h-16 grid-cols-[1fr_auto] items-center gap-2 rounded-app-md border bg-app-surface p-2 text-start transition-colors",
+                      "grid min-w-0 content-start gap-2 rounded-app-md border bg-app-surface p-2 text-start transition-colors",
                       selectedQuantity ? "border-app-primary bg-app-primary-soft" : "border-app-border hover:border-app-border-strong"
                     )}
                   >
@@ -1671,18 +1671,27 @@ function MenuItemSelectionPanel({
                       className="min-w-0 text-start focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft"
                     >
                       <span className="flex min-w-0 items-center gap-2">
-                        <span className="block min-w-0 flex-1 truncate text-sm font-semibold text-app-ink">{item.name}</span>
+                        <span className="block min-w-0 flex-1 whitespace-normal break-words text-sm font-semibold leading-6 text-app-ink">{item.name}</span>
                         {selectedQuantity ? (
-                          <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-app-primary px-1.5 text-xs font-black text-app-primary-foreground">
+                          <span className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full bg-app-primary px-1.5 text-xs font-black text-app-primary-foreground">
                             {formatInteger(selectedQuantity)}
                           </span>
                         ) : null}
                       </span>
-                      <span className="mt-1 block text-app-helper text-app-muted">{money(item.price, currency)}</span>
-                      {inventoryEnabled && !hasRecipe ? (
-                        <span className="mt-1 block text-[11px] font-semibold text-app-warning">لا توجد مكونات مخزون مرتبطة</span>
-                      ) : null}
                     </button>
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <span className="min-w-0 flex-1 text-app-helper text-app-muted">{money(item.price, currency)}</span>
+                      {inventoryEnabled && !hasRecipe ? (
+                        <span
+                          tabIndex={0}
+                          role="img"
+                          aria-label="لا توجد مكونات مخزون مرتبطة"
+                          title="لا توجد مكونات مخزون مرتبطة"
+                          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-app-warning focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft"
+                        >
+                          <Info className="h-4 w-4" aria-hidden="true" />
+                        </span>
+                      ) : null}
                     <button
                       type="button"
                       aria-label={`إضافة ${item.name}`}
@@ -1692,6 +1701,7 @@ function MenuItemSelectionPanel({
                     >
                       <Plus className="h-4 w-4" />
                     </button>
+                    </div>
                   </div>
                 );
               })}
