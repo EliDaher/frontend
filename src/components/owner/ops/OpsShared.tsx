@@ -62,6 +62,7 @@ export function useOpsPage(requiredModule: RestaurantModule): LoadState {
 
     function resumeSync() {
       void startSync(restaurant!.id, token);
+      void loadRestaurant(token);
     }
 
     window.addEventListener("online", resumeSync);

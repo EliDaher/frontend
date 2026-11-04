@@ -90,4 +90,21 @@ describe("order receipt snapshots", () => {
     assert.deepEqual(receipt.items.map((item) => item.name), ["Snapshot item"]);
     assert.equal(receipt.payableAmount, 310);
   });
+  it("prints saved currencies and exchange rates without revaluing old payments", () => {
+    const payments = [{ method: "SHAM_CASH", currency: "USD", originalAmount: .02, exchangeRate: 10000, amount: 200, cashRegisterId: "cash" }];
+    const receipt = buildReceipt(order, { ...restaurant, currency: "USD", usdExchangeRate: 20000 }, null, { ...invoice, currency: "SYP", payments });
+    assert.equal(receipt.currency, "ل.س"); assert.equal(receipt.payments[0].amount, 200); assert.equal(receipt.payments[0].exchangeRate, 10000);
+    assert.equal(receipt.saleLabel, "فاتورة مبيعات");
+  });
+
+  it("uses the saved invoice customer name for printing without changing the order name", () => {
+    const receipt = buildReceipt({ ...order, customerName: "اسم الطلب الحالي" }, restaurant, null, { ...invoice, customerName: "  أحمد العلي  " });
+    assert.equal(receipt.customerName, "أحمد العلي");
+    assert.equal(order.name, "Table 1");
+  });
+  it("does not include a customer name in unnamed or whitespace-only receipts", () => {
+    assert.equal(buildReceipt(order, restaurant, null, invoice).customerName, undefined);
+    assert.equal(buildReceipt(order, restaurant, null, { ...invoice, customerName: "   " }).customerName, undefined);
+  });
+
 });

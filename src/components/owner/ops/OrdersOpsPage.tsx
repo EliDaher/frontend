@@ -1,4 +1,7 @@
 "use client";
+import { PaymentDetails } from "./PaymentDetails";
+import type { PaymentDraft } from "./PaymentEditor";
+import { CheckoutDialog } from "./CheckoutDialog";
 
 import Link from "next/link";
 import type { FormEvent } from "react";
@@ -60,8 +63,11 @@ type OrderForm = {
 };
 
 type CompleteOrderConfirmation = {
+  customerName?: string;
   order: OpsOrder;
   paymentMethod: PaymentMethod;
+  settlementMode?: PaymentDraft["settlementMode"];
+  payments?: PaymentDraft["payments"];
   paidAmount: number;
   cashRegisterId: string;
   note: string;
@@ -215,6 +221,7 @@ export function OrdersOpsPage() {
     const paidAmount = paymentAmountForMethod(paymentMethod, order.total, paymentMethod === "SPLIT" ? order.total : 0);
     setPendingCompleteOrder({
       order,
+      customerName: order.customerName ?? "",
       paymentMethod,
       paidAmount,
       cashRegisterId: complete.cashRegisterId || cashRegisters[0]?.id || "",
@@ -225,14 +232,14 @@ export function OrdersOpsPage() {
   async function confirmCompleteOrder() {
     if (!pendingCompleteOrder) return;
     const { order, paymentMethod, paidAmount, cashRegisterId, note } = pendingCompleteOrder;
-    if (paymentMethod === "SPLIT" && paidAmount <= 0) {
-      state.setMessage("أدخل المبلغ المدفوع قبل إنهاء طلب الدفع المقسّم.");
-      return;
-    }
+
 
     await runOrderAction(order.id, async () => {
       if (!offlineContext) throw new Error("تعذر تحديد المطعم الحالي.");
       await completeLocalOrder(offlineContext, order.id, {
+        customerName: pendingCompleteOrder.customerName,
+        settlementMode: pendingCompleteOrder.settlementMode ?? "FULL",
+        payments: pendingCompleteOrder.payments ?? (order.total > 0 ? [{ method: paymentMethod === "SHAM_CASH" ? "SHAM_CASH" : "CASH", currency: "SYP", originalAmount: order.total, exchangeRate: 1, cashRegisterId }] : []),
         paymentMethod,
         paidAmount,
         cashRegisterId: cashRegisterId || undefined,
@@ -535,92 +542,25 @@ export function OrdersOpsPage() {
         </form>
       </PopupForm>
 
-      <PopupForm
-        open={Boolean(pendingCompleteOrder)}
+      {pendingCompleteOrder && <CheckoutDialog
+        key={pendingCompleteOrder.order.id}
+        description={cashierOrderLabel(pendingCompleteOrder.order, tables.find((table) => table.id === pendingCompleteOrder.order.tableId) ?? null)}
+        total={pendingCompleteOrder.order.total}
+        value={{ settlementMode: pendingCompleteOrder.settlementMode ?? "FULL", payments: pendingCompleteOrder.payments ?? (pendingCompleteOrder.order.total > 0 ? [{ method: pendingCompleteOrder.paymentMethod === "SHAM_CASH" ? "SHAM_CASH" : "CASH", currency: "SYP", originalAmount: pendingCompleteOrder.order.total, exchangeRate: 1, cashRegisterId: pendingCompleteOrder.cashRegisterId }] : []) }}
+        onChange={draft => setPendingCompleteOrder(current => current ? { ...current, ...draft } : current)}
+        customerName={pendingCompleteOrder.customerName ?? ""}
+        onCustomerNameChange={customerName => setPendingCompleteOrder(current => current ? { ...current, customerName } : current)}
+        note={pendingCompleteOrder.note}
+        onNoteChange={note => { setPendingCompleteOrder(current => current ? { ...current, note } : current);
+          setComplete(current => ({ ...current, note })); }}
+        exchangeRate={state.restaurant?.usdExchangeRate}
+        baseCurrency={state.restaurant?.currency}
+        registers={cashRegisters}
+        busy={Boolean(orderActionBusyId)}
         onClose={() => setPendingCompleteOrder(null)}
-        title="إنهاء الطلب"
-        description={pendingCompleteOrder ? `${cashierOrderLabel(pendingCompleteOrder.order, tables.find((table) => table.id === pendingCompleteOrder.order.tableId) ?? null)} · ${money(pendingCompleteOrder.order.total, state.restaurant?.currency)}` : undefined}
-        maxWidth="sm"
-      >
-        {pendingCompleteOrder ? (
-          <div className="grid gap-4">
-            <div className="rounded-app-md border border-app-border bg-app-surface-muted p-3">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-semibold text-app-muted">الإجمالي</span>
-                <strong className="text-lg text-app-ink">{money(pendingCompleteOrder.order.total, state.restaurant?.currency)}</strong>
-              </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <AppFieldShell label="طريقة الدفع">
-                <AppSelect
-                  value={pendingCompleteOrder.paymentMethod}
-                  onChange={(event) => {
-                    const paymentMethod = event.target.value as PaymentMethod;
-                    setPendingCompleteOrder((current) => current ? {
-                      ...current,
-                      paymentMethod,
-                      paidAmount: paymentAmountForMethod(paymentMethod, current.order.total, current.paidAmount)
-                    } : current);
-                    setComplete((current) => ({ ...current, paymentMethod }));
-                  }}
-                >
-                  {paymentMethods.map((method) => <option key={method} value={method}>{option(method).label}</option>)}
-                </AppSelect>
-              </AppFieldShell>
-              <AppFieldShell label="المدفوع">
-                <AppInput
-                  type="number"
-                  min="0"
-                  value={pendingCompleteOrder.paidAmount}
-                  onChange={(event) => setPendingCompleteOrder((current) => current ? { ...current, paidAmount: Number(event.target.value) } : current)}
-                />
-              </AppFieldShell>
-            </div>
-            {cashRegisters.length ? (
-              <AppFieldShell label="الصندوق">
-                <AppSelect
-                  value={pendingCompleteOrder.cashRegisterId}
-                  onChange={(event) => {
-                    setPendingCompleteOrder((current) => current ? { ...current, cashRegisterId: event.target.value } : current);
-                    setComplete((current) => ({ ...current, cashRegisterId: event.target.value }));
-                  }}
-                >
-                  <option value="">بدون صندوق</option>
-                  {cashRegisters.map((register) => (
-                    <option key={register.id} value={register.id}>
-                      {register.name} - {money(register.currentBalance, state.restaurant?.currency)}
-                    </option>
-                  ))}
-                </AppSelect>
-              </AppFieldShell>
-            ) : null}
-            <AppFieldShell label="ملاحظة الدفع">
-              <AppInput
-                value={pendingCompleteOrder.note}
-                onChange={(event) => {
-                  setPendingCompleteOrder((current) => current ? { ...current, note: event.target.value } : current);
-                  setComplete((current) => ({ ...current, note: event.target.value }));
-                }}
-              />
-            </AppFieldShell>
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <AppButton type="button" variant="secondary" onClick={() => setPendingCompleteOrder(null)} disabled={Boolean(orderActionBusyId)} className="w-full sm:w-auto">
-                إلغاء
-              </AppButton>
-              <AppButton
-                type="button"
-                data-autofocus
-                onClick={() => void confirmCompleteOrder()}
-                loading={orderActionBusyId === pendingCompleteOrder.order.id}
-                disabled={Boolean(orderActionBusyId)}
-                className="w-full sm:w-auto"
-              >
-                تأكيد الإنهاء
-              </AppButton>
-            </div>
-          </div>
-        ) : null}
-      </PopupForm>
+        onConfirm={() => void confirmCompleteOrder()}
+      />}
+
 
       <OrderDetailsDialog
         order={detailsOrder}
@@ -942,6 +882,7 @@ function OrderDetailsDialog({
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="grid content-start gap-2 rounded-app-lg border border-app-border bg-app-surface p-3">
+            {(invoice?.customerName || order.customerName) ? <DetailRow label="اسم الزبون" value={invoice?.customerName || order.customerName || ""} /> : null}
             {order.notes ? <DetailRow label="ملاحظة الطلب" value={order.notes} /> : null}
             {detailNote && detailNote !== order.notes ? <DetailRow label="ملاحظة الدفع" value={detailNote} /> : null}
             {invoice ? <DetailRow label="الفاتورة" value={compactReferenceNo(invoice.id)} /> : null}
@@ -957,6 +898,7 @@ function OrderDetailsDialog({
             <div className="my-1 border-t border-app-border" />
             <DetailTotal label="الإجمالي" value={total} currency={restaurant?.currency} strong />
             <DetailRow label="طريقة الدفع" value={option(paymentMethod).label} />
+            <PaymentDetails payments={invoice?.payments ?? order.payments} />
             <DetailTotal label="المدفوع" value={paidAmount} currency={restaurant?.currency} />
             {remainingAmount > 0 ? <DetailTotal label="المتبقي" value={remainingAmount} currency={restaurant?.currency} /> : null}
           </div>

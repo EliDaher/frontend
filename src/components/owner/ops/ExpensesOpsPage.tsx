@@ -1,4 +1,9 @@
 "use client";
+import type { Restaurant } from "@/types/menu";
+import { ExpenseSettlementButton } from "./InvoiceSettlementButton";
+import { PaymentEditor, type PaymentDraft } from "./PaymentEditor";
+import { MoneyFields } from "./MoneyFields";
+import type { MoneyInput } from "@/lib/payments";
 
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -20,14 +25,14 @@ import { adminRequest } from "@/lib/api";
 import { formatInteger } from "@/lib/format";
 import { createActionGuard } from "@/offline/action-guard";
 import { useLiveQuery } from "@/offline/hooks/useLiveQuery";
-import { createLocalExpense, hydrateFinancialHistory, listLocalExpenses, refreshFinancialHistory } from "@/offline/repositories/financial-history";
+import { listLocalCashRegisters, createLocalExpense, hydrateFinancialHistory, listLocalExpenses, refreshFinancialHistory } from "@/offline/repositories/financial-history";
 import type { OfflineContext } from "@/offline/repositories/tables";
 import type { LocalExpense } from "@/offline/schema";
 import type { Expense, PaymentMethod } from "@/types/ops";
 import { money, OpsShell, useOpsPage } from "./OpsShared";
-import { buildCurrentMonthRange, dateRangeLabel, formatFinancialDate, isWithinDateRange, option, paymentMethodLabel, paymentMethods, run } from "./OpsPageShared";
+import { buildCurrentMonthRange, dateRangeLabel, formatFinancialDate, isWithinDateRange, option, paymentSummary, paymentMethodLabel, paymentMethods, run } from "./OpsPageShared";
 
-type ExpenseForm = {
+type ExpenseForm = MoneyInput & {
   category: string;
   amount: number;
   paymentMethod: string;
@@ -41,6 +46,7 @@ export function ExpensesOpsPage() {
   const [editingId, setEditingId] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [pendingDeleteExpense, setPendingDeleteExpense] = useState<LocalExpense | null>(null);
+  const [paymentDraft, setPaymentDraft] = useState<PaymentDraft | null>(null);
   const [form, setForm] = useState<ExpenseForm>(emptyExpenseForm());
   const [saveBusy, setSaveBusy] = useState(false);
   const saveGuard = useRef(createActionGuard());
@@ -49,6 +55,7 @@ export function ExpensesOpsPage() {
     if (!state.token || !tenantId) return null;
     return { token: state.token, tenantId, userId: state.restaurant?.ownerUserId ?? "owner" };
   }, [state.restaurant?.ownerUserId, state.token, tenantId]);
+  const { value: registers } = useLiveQuery(() => tenantId ? listLocalCashRegisters(tenantId) : Promise.resolve([]), [], [tenantId]);
   const { value: expenses } = useLiveQuery(() => tenantId ? listLocalExpenses(tenantId) : Promise.resolve([]), [] as LocalExpense[], [tenantId]);
 
   useEffect(() => {
@@ -85,6 +92,9 @@ export function ExpensesOpsPage() {
             await refreshExpenses();
           } else {
             await createLocalExpense(offlineContext, {
+              ...form,
+              settlementMode: paymentDraft?.settlementMode ?? "FULL",
+              payments: paymentDraft?.payments ?? [{ method: "CASH", currency: form.currency ?? "SYP", originalAmount: form.amount, exchangeRate: form.currency === "USD" ? form.exchangeRate ?? 0 : 1, cashRegisterId: "" }],
               category: form.category,
               amount: form.amount,
               paymentMethod: form.paymentMethod as PaymentMethod,
@@ -116,6 +126,7 @@ export function ExpensesOpsPage() {
   }
 
   function openNewForm() {
+    setPaymentDraft(null);
     reset();
     setFormOpen(true);
   }
@@ -128,7 +139,7 @@ export function ExpensesOpsPage() {
   function edit(expense: LocalExpense) {
     if (!isConfirmedExpense(expense)) return;
     setEditingId(expense.id);
-    setForm({ category: expense.category, amount: expense.amount, paymentMethod: expense.paymentMethod, paidAt: (expense.paidAt || "").slice(0, 10), notes: expense.notes });
+    setForm({ currency: expense.currency, exchangeRate: expense.exchangeRate, category: expense.category, amount: expense.originalAmount ?? expense.amount, paymentMethod: expense.paymentMethod, paidAt: (expense.paidAt || "").slice(0, 10), notes: expense.notes });
     setFormOpen(true);
   }
 
@@ -196,11 +207,11 @@ export function ExpensesOpsPage() {
                             <ExpenseSyncBadge expense={expense} />
                           </div>
                         </td>
-                        <td className="whitespace-nowrap border-b border-app-border px-3 py-3 text-app-muted">{paymentMethodLabel(expense.paymentMethod)}</td>
+                        <td className="whitespace-nowrap border-b border-app-border px-3 py-3 text-app-muted">{paymentSummary(expense)}</td>
                         <td className="whitespace-nowrap border-b border-app-border px-3 py-3 font-semibold text-app-danger">{money(expense.amount, state.restaurant?.currency)}</td>
                         <td className="max-w-sm border-b border-app-border px-3 py-3 text-app-muted"><span className="block truncate">{expense.notes || "-"}</span></td>
                         <td className="border-b border-app-border px-3 py-3">
-                          <ExpenseRowActions expense={expense} onEdit={() => edit(expense)} onDelete={() => setPendingDeleteExpense(expense)} />
+                          <ExpenseRowActions restaurant={state.restaurant} expense={expense} onEdit={() => edit(expense)} onDelete={() => setPendingDeleteExpense(expense)} />
                         </td>
                       </tr>
                     ))}
@@ -210,7 +221,7 @@ export function ExpensesOpsPage() {
 
               <div className="mt-4 grid gap-2 md:hidden">
                 {filtered.map((expense) => (
-                  <ExpenseMobileRow key={expense.id} expense={expense} currency={state.restaurant?.currency} onEdit={() => edit(expense)} onDelete={() => setPendingDeleteExpense(expense)} />
+                  <ExpenseMobileRow restaurant={state.restaurant} key={expense.id} expense={expense} currency={state.restaurant?.currency} onEdit={() => edit(expense)} onDelete={() => setPendingDeleteExpense(expense)} />
                 ))}
               </div>
             </>
@@ -225,14 +236,9 @@ export function ExpensesOpsPage() {
           <AppFieldShell label="الفئة">
             <AppInput value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} />
           </AppFieldShell>
-          <AppFieldShell label="المبلغ">
-            <AppInput type="number" min="0" value={form.amount} onChange={(event) => setForm({ ...form, amount: Number(event.target.value) })} />
-          </AppFieldShell>
-          <AppFieldShell label="طريقة الدفع">
-            <AppSelect value={form.paymentMethod} onChange={(event) => setForm({ ...form, paymentMethod: event.target.value as PaymentMethod })}>
-              {paymentMethods.map((method) => <option key={method} value={method}>{option(method).label}</option>)}
-            </AppSelect>
-          </AppFieldShell>
+          <MoneyFields value={form} onChange={value => { setForm({ ...form, ...value }); setPaymentDraft(null); }} exchangeRate={state.restaurant?.usdExchangeRate} />
+          {!editingId && <PaymentEditor registers={registers} total={Math.round(form.amount * (form.currency === "USD" ? form.exchangeRate ?? 0 : 1))} value={paymentDraft ?? { settlementMode: "FULL", payments: form.amount > 0 ? [{ method: "CASH", currency: form.currency ?? "SYP", originalAmount: form.amount, exchangeRate: form.currency === "USD" ? form.exchangeRate ?? 0 : 1, cashRegisterId: "" }] : [] }} onChange={setPaymentDraft} exchangeRate={state.restaurant?.usdExchangeRate} baseCurrency={state.restaurant?.currency} />}
+
           <AppFieldShell label="التاريخ">
             <AppInput type="date" value={form.paidAt} onChange={(event) => setForm({ ...form, paidAt: event.target.value })} />
           </AppFieldShell>
@@ -259,7 +265,7 @@ export function ExpensesOpsPage() {
   );
 }
 
-function ExpenseMobileRow({ expense, currency, onEdit, onDelete }: { expense: LocalExpense; currency?: string; onEdit: () => void; onDelete: () => void }) {
+function ExpenseMobileRow({ restaurant, expense, currency, onEdit, onDelete }: { restaurant: Restaurant | null; expense: LocalExpense; currency?: string; onEdit: () => void; onDelete: () => void }) {
   return (
     <article className="rounded-app-md border border-app-border bg-app-surface p-3">
       <div className="flex items-start justify-between gap-3">
@@ -268,20 +274,21 @@ function ExpenseMobileRow({ expense, currency, onEdit, onDelete }: { expense: Lo
             <p className="font-semibold text-app-ink">{expense.category}</p>
             <ExpenseSyncBadge expense={expense} />
           </div>
-          <p className="mt-1 text-app-helper text-app-muted">{formatFinancialDate(expense.paidAt || expense.createdAt)} · {paymentMethodLabel(expense.paymentMethod)}</p>
+          <p className="mt-1 text-app-helper text-app-muted">{formatFinancialDate(expense.paidAt || expense.createdAt)} · {paymentSummary(expense)}</p>
         </div>
         <p className="shrink-0 font-semibold text-app-danger">{money(expense.amount, currency)}</p>
       </div>
       {expense.notes ? <p className="mt-3 truncate text-app-helper text-app-muted">{expense.notes}</p> : null}
-      <ExpenseRowActions expense={expense} onEdit={onEdit} onDelete={onDelete} className="mt-3" />
+      <ExpenseRowActions restaurant={restaurant} expense={expense} onEdit={onEdit} onDelete={onDelete} className="mt-3" />
     </article>
   );
 }
 
-function ExpenseRowActions({ expense, onEdit, onDelete, className }: { expense: LocalExpense; onEdit: () => void; onDelete: () => void; className?: string }) {
+function ExpenseRowActions({ restaurant, expense, onEdit, onDelete, className }: { restaurant: Restaurant | null; expense: LocalExpense; onEdit: () => void; onDelete: () => void; className?: string }) {
   const confirmed = isConfirmedExpense(expense);
   return (
     <div className={cn("flex flex-wrap gap-2", className)}>
+      <ExpenseSettlementButton expense={expense} restaurant={restaurant} />
       <AppButton type="button" variant="secondary" size="sm" onClick={onEdit} disabled={!confirmed}>تعديل</AppButton>
       <AppButton type="button" variant="ghost" size="sm" onClick={onDelete} disabled={!confirmed} className="text-app-danger hover:bg-app-danger-soft">حذف</AppButton>
     </div>
@@ -306,5 +313,5 @@ function isConfirmedExpense(expense: LocalExpense) {
 }
 
 function emptyExpenseForm(): ExpenseForm {
-  return { category: "", amount: 0, paymentMethod: "CASH", paidAt: "", notes: "" };
+  return { currency: "SYP", exchangeRate: 1, category: "", amount: 0, paymentMethod: "CASH", paidAt: "", notes: "" };
 }

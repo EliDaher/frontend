@@ -1,0 +1,38 @@
+.page {
+  min-width: 0;
+  --app-primary: #27272a;
+  --app-primary-hover: #18181b;
+  --app-primary-soft: #f4f4f5;
+  --app-primary-foreground: #ffffff;
+  --app-success: #3f3f46;
+  --app-success-soft: #f4f4f5;
+  --app-warning: #52525b;
+  --app-warning-soft: #f4f4f5;
+  --app-surface: #ffffff;
+  --app-surface-muted: #f4f4f5;
+  --app-border: #e4e4e7;
+  --app-border-strong: #a1a1aa;
+  --app-ink: #18181b;
+  --app-muted: #52525b;
+}
+
+.page :global(.rounded-app-lg) {
+  border-radius: 8px;
+}
+
+.page :global(.rounded-app-md) {
+  border-radius: 6px;
+}
+
+.page :global(.rounded-app-sm) {
+  border-radius: 4px;
+}
+
+.page :global(button:focus-visible),
+.page :global(a:focus-visible),
+.page :global(input:focus-visible),
+.page :global(select:focus-visible),
+.page :global(textarea:focus-visible) {
+  outline: 2px solid #71717a;
+  outline-offset: 2px;
+}

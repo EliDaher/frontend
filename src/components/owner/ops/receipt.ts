@@ -42,8 +42,8 @@ export function buildReceipt(
   const vatNumber = restaurant?.vatNumber?.trim() || DEFAULT_VAT_NUMBER;
   const invoiceNo = compactInvoiceNo(invoice?.id || order.invoiceId || order.id);
   const invoiceDateTime = formatReceiptDateTime(invoice?.updatedAt || invoice?.createdAt || order.updatedAt || order.orderedAt || order.createdAt);
-  const currency = normalizeReceiptCurrency(restaurant?.currency);
-  const saleLabel = table?.name ? `مبيعات نقدية ط ${table.name}` : "مبيعات نقدية";
+  const currency = normalizeReceiptCurrency(source.currency ?? restaurant?.currency);
+  const saleLabel = table?.name ? `فاتورة مبيعات · طاولة ${table.name}` : "فاتورة مبيعات";
   const confirmationStatus = receiptConfirmationStatus(invoice, order);
 
   const summary = {
@@ -68,6 +68,8 @@ export function buildReceipt(
     invoiceNo,
     invoiceDateTime,
     saleLabel,
+    customerName: source.customerName?.trim() || undefined,
+    payments: source.payments ?? [],
     currency,
     items,
     baseAmount,
@@ -112,7 +114,7 @@ function formatReceiptDateTime(value: string | undefined) {
 
 function normalizeReceiptCurrency(currency: string | undefined) {
   const value = currency?.trim();
-  if (!value || value.toUpperCase() === "SYP") return "SP";
+  if (!value || value.toUpperCase() === "SYP") return "ل.س";
   return value;
 }
 

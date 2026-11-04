@@ -1,4 +1,6 @@
-const CACHE_NAME = "restaurant-ops-shell-v2";
+const CACHE_PREFIX = "restaurant-ops-shell-";
+const CACHE_NAME = `${CACHE_PREFIX}v3`;
+const isLocalDevelopment = ["localhost", "127.0.0.1", "[::1]"].includes(self.location.hostname);
 const SHELL_URLS = [
   "/",
   "/owner/operations/orders",
@@ -19,13 +21,14 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) => Promise.all(
-      keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+      keys.filter((key) => key.startsWith(CACHE_PREFIX) && (isLocalDevelopment || key !== CACHE_NAME)).map((key) => caches.delete(key))
     ))
   );
   self.clients.claim();
 });
 
 self.addEventListener("fetch", (event) => {
+  if (isLocalDevelopment) return;
   const request = event.request;
   if (request.method !== "GET") return;
 

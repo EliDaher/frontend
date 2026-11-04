@@ -5,7 +5,7 @@ import { localConflictPayload } from "./conflict-payload";
 import { offlineDb, tenantMetadataKey } from "./db";
 import { getDeviceId } from "./device";
 import { nextRetryTime, notifySyncStatusChanged, pendingOperations, recoverStaleSyncingOperations } from "./outbox";
-import type { PullChange, PushOperation, PushResult, SyncQueueItem } from "./schema";
+import type { PullChange, PushOperation, PushResult, SyncQueueItem, SyncEntityType } from "./schema";
 
 const syncLeaseMs = 60_000;
 const maxPushBatches = 10;
@@ -318,6 +318,7 @@ async function applyPushResults(operations: SyncQueueItem[], results: PushResult
   }
 
   await offlineDb.syncQueue.bulkPut(updates);
+  await reconcileFinancialArtifactStatuses(updates);
   notifySyncStatusChanged();
 }
 
@@ -349,6 +350,39 @@ async function markEntitySynced(operation: SyncQueueItem, result: PushResult, no
     if (operation.action === "completeOrder") {
       await markOrderCompletionArtifactsSynced(operation.entityId, result, now);
     }
+  }
+
+  if (operation.entityType === "payment") {
+    const relatedOrderId = String(result.response?.orderId ?? "");
+    const relatedOrderVersion = Number(result.response?.orderVersion);
+    if (relatedOrderId && Number.isFinite(relatedOrderVersion)) {
+      const order = await offlineDb.orders.get(relatedOrderId);
+      if (order) await offlineDb.orders.put({ ...order, version: relatedOrderVersion });
+      await updateDependentOrderBaseVersions({ ...operation, entityType: "order", entityId: relatedOrderId }, relatedOrderVersion);
+    }
+    const invoiceId = String(operation.payload.invoiceId ?? "");
+    const invoice = await offlineDb.invoices.get(invoiceId);
+    if (invoice) {
+      await offlineDb.invoices.put(clearSyncError({ ...invoice, syncStatus: "synced", lastSyncedAt: now }));
+      if (invoice.orderId) {
+        const order = await offlineDb.orders.get(invoice.orderId);
+        if (order) await offlineDb.orders.put(clearSyncError({ ...order, syncStatus: "synced", lastSyncedAt: now }));
+      }
+      if (invoice.supplierId) {
+        const supplier = await offlineDb.suppliers.get(invoice.supplierId);
+        if (supplier) await offlineDb.suppliers.put(clearSyncError({ ...supplier, syncStatus: "synced", lastSyncedAt: now }));
+      }
+    }
+    const count = Array.isArray(operation.payload.payments) ? operation.payload.payments.length : 0;
+    for (let index = 0; index < count; index++) {
+      const id = index === 0 ? operation.entityId : `${operation.entityId}_${index}`;
+      const payment = await offlineDb.payments.get(id);
+      if (payment) await offlineDb.payments.put(clearSyncError({ ...payment, syncStatus: "synced", lastSyncedAt: now }));
+      const movement = await offlineDb.cashMovements.get(id);
+      if (movement) await offlineDb.cashMovements.put(clearSyncError({ ...movement, syncStatus: "synced", lastSyncedAt: now }));
+    }
+    const journal = await offlineDb.journalEntries.get(operation.entityId);
+    if (journal) await offlineDb.journalEntries.put(clearSyncError({ ...journal, syncStatus: "synced", lastSyncedAt: now }));
   }
 
   if (operation.entityType === "expense") {
@@ -413,6 +447,14 @@ async function markOrderCompletionArtifactsSynced(orderId: string, result: PushR
   const movement = await offlineDb.cashMovements.get(movementId);
   if (movement) await offlineDb.cashMovements.put(clearSyncError({ ...movement, syncStatus: "synced", lastSyncedAt: now, version: result.serverVersion ?? movement.version }));
 
+  const completionOrder = await offlineDb.orders.get(orderId);
+  for (let index = 1; index < (completionOrder?.payments?.length ?? 0); index++) {
+    const id = `order_${orderId}_${index}`;
+    const payment = await offlineDb.payments.get(id);
+    if (payment) await offlineDb.payments.put(clearSyncError({ ...payment, syncStatus: "synced", lastSyncedAt: now }));
+    const movement = await offlineDb.cashMovements.get(id);
+    if (movement) await offlineDb.cashMovements.put(clearSyncError({ ...movement, syncStatus: "synced", lastSyncedAt: now }));
+  }
   const journal = await offlineDb.journalEntries.get(journalId);
   if (journal) await offlineDb.journalEntries.put(clearSyncError({ ...journal, syncStatus: "synced", lastSyncedAt: now, version: result.serverVersion ?? journal.version }));
 }
@@ -715,4 +757,65 @@ function logSyncCycle(startedAt: number, pushedOperations: number, pulledChanges
   if (process.env.NODE_ENV === "production") return;
   const durationMs = Math.round(performanceNow() - startedAt);
   console.debug("[offline-sync] cycle", { durationMs, pushedOperations, pulledChanges });
+}
+
+async function reconcileFinancialArtifactStatuses(updated: SyncQueueItem[]) {
+  if (!updated.length) return;
+  const tenantId = updated[0].tenantId;
+  const pending = await offlineDb.syncQueue.where("tenantId").equals(tenantId).filter(op => op.status !== "synced").toArray();
+  const operations = [...updated.filter(op => op.status === "synced"), ...pending];
+  const patches = new Map<string, { table: ReturnType<typeof tableForEntity>; id: string; op: SyncQueueItem }>();
+  const add = (entity: SyncEntityType, id: string, op: SyncQueueItem) => { if (id) patches.set(`${entity}:${id}`, { table: tableForEntity(entity), id, op }); };
+  for (const op of operations) {
+    let registerIds: string[] = [];
+    const rows = Array.isArray(op.payload.payments) ? op.payload.payments as Array<{ cashRegisterId?: string }> : null;
+    registerIds = rows?.map(row => row.cashRegisterId ?? "") ?? [String(op.payload.cashRegisterId ?? "")];
+    if (op.entityType === "order") {
+      add("order", op.entityId, op);
+      const order = await offlineDb.orders.get(op.entityId);
+      if (op.action === "completeOrder") {
+        add("invoice", `order_${op.entityId}`, op);
+        add("journalEntry", `order_${op.entityId}`, op);
+        for (let index = 0; index < (rows?.length ?? (Number(op.payload.paidAmount) > 0 ? 1 : 0)); index++) {
+          const id = index === 0 ? `order_${op.entityId}` : `order_${op.entityId}_${index}`;
+          add("payment", id, op); add("cashMovement", id, op);
+        }
+      }
+      if (op.action === "cancelOrder" && order?.invoiceId) {
+        add("invoice", order.invoiceId, op); add("invoice", `refund_order_${op.entityId}`, op); add("journalEntry", `reverse_order_${op.entityId}`, op);
+        const payments = await offlineDb.payments.where("orderId").equals(op.entityId).filter(p => p.restaurantId === tenantId && p.type === "SALE").toArray();
+        for (let index = 0; index < payments.length; index++) {
+          const id = index === 0 ? `cancel_order_${op.entityId}` : `cancel_order_${op.entityId}_${index}`;
+          add("payment", id, op); add("cashMovement", id, op);
+          const movement = await offlineDb.cashMovements.get(payments[index].id);
+          if (movement?.cashRegisterId) registerIds.push(movement.cashRegisterId);
+        }
+      }
+    } else if (op.entityType === "payment") {
+      if (op.payload.expenseId) {
+        add("expense", String(op.payload.expenseId), op); add("journalEntry", `expense_${op.entityId}`, op);
+        for (let index = 0; index < (rows?.length ?? 0); index++) add("cashMovement", `expense_${op.entityId}_${index}`, op);
+      }
+      const invoiceId = String(op.payload.invoiceId ?? "");
+      add("invoice", invoiceId, op); add("journalEntry", op.entityId, op);
+      const invoice = await offlineDb.invoices.get(invoiceId);
+      if (invoice?.orderId) add("order", invoice.orderId, op);
+      if (invoice?.supplierId) add("supplier", invoice.supplierId, op);
+      for (let index = 0; index < (rows?.length ?? 0); index++) {
+        const id = index === 0 ? op.entityId : `${op.entityId}_${index}`;
+        add("payment", id, op); add("cashMovement", id, op);
+      }
+    } else if (op.entityType === "expense") {
+      add("expense", op.entityId, op); add("journalEntry", `expense_${op.entityId}`, op);
+      for (let index = 0; index < (rows?.length ?? 1); index++) add("cashMovement", `expense_${op.entityId}_${index}`, op);
+    } else if (op.entityType === "cashMovement") add("cashMovement", op.entityId, op);
+    for (const id of registerIds) add("cashRegister", id, op);
+  }
+  for (const { table, id, op } of patches.values()) {
+    if (!table) continue;
+    const record = await table.get(id) as Record<string, unknown> | undefined;
+    if (!record || record.restaurantId !== tenantId) continue;
+    const status = op.status === "synced" ? "synced" : op.status === "conflict" ? "conflict" : op.status === "failed" ? "failed" : "pending";
+    await table.put({ ...record, syncStatus: status, syncErrorCode: op.error?.code, syncErrorMessage: op.error?.message } as never);
+  }
 }

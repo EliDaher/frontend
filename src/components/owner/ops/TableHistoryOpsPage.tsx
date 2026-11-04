@@ -1,4 +1,6 @@
 "use client";
+import { businessDay, businessDayStart } from "@/lib/business-day";
+import { PaymentDetails } from "./PaymentDetails";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -11,7 +13,6 @@ import {
 } from "@/components/shared";
 import { adminRequest } from "@/lib/api";
 import {
-  historyDay,
   historyZone,
   historyOrderTime,
   ordersForHistoryDay,
@@ -36,7 +37,9 @@ export function TableHistoryOpsPage() {
   const path = usePathname();
   const params = useSearchParams();
   const zone = historyZone(state.restaurant?.timezone);
-  const today = historyDay(new Date(), zone);
+  const [clock, setClock] = useState(() => new Date());
+  useEffect(() => { const timer = setInterval(() => setClock(new Date()), 1000); return () => clearInterval(timer); }, []);
+  const today = businessDay(clock, state.restaurant ?? undefined);
   const requestedDay = params.get("date") || today;
   const day =
     validHistoryDay(requestedDay) && requestedDay <= today
@@ -114,8 +117,8 @@ export function TableHistoryOpsPage() {
     }
   }, [selectedId, day, state.modules?.orders]);
   const orders = useMemo(
-    () => ordersForHistoryDay(ordersQuery.value, day, zone),
-    [ordersQuery.value, day, zone],
+    () => ordersForHistoryDay(ordersQuery.value, day, zone, state.restaurant ?? undefined),
+    [ordersQuery.value, day, zone, state.restaurant?.businessDayStartTime],
   );
   const tables = sortTablesByNumber(tablesQuery.value);
   const known = new Set(tables.map((table) => table.id));
@@ -146,7 +149,7 @@ export function TableHistoryOpsPage() {
       eyebrow="استعراض الأيام السابقة"
       module="tables"
       state={state}
-      onRefresh={() => void load()}
+      onRefresh={() => void Promise.all([load(), state.loadRestaurant()])}
     >
       {!state.modules?.orders ? (
         <AppEmptyState
@@ -161,7 +164,7 @@ export function TableHistoryOpsPage() {
                 سجل الطاولات
               </h1>
               <p className="text-app-helper text-app-muted">
-                للاستعراض وطباعة الفواتير فقط
+                للاستعراض وطباعة الفواتير فقط · يبدأ اليوم المحاسبي الساعة {businessDayStart(state.restaurant ?? undefined)}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -647,7 +650,9 @@ function HistoryOrder({
             </dl>
             <p className="text-app-helper text-app-muted">
               طريقة الدفع: {paymentMethodLabel(source.paymentMethod)}
+              <PaymentDetails payments={source.payments} />
             </p>
+            {(source.customerName || order.customerName) ? <p className="break-words">اسم الزبون: {source.customerName || order.customerName}</p> : null}
             {order.notes ? <p>ملاحظات: {order.notes}</p> : null}
             {busy ? <p role="status">جارٍ تحميل الفاتورة…</p> : null}
             {error ? (

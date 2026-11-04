@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { businessDayStart, businessZone, validBusinessDayStart } from "@/lib/business-day";
 import { Globe2, RefreshCw, Settings } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { OwnerAppShell } from "@/components/owner/dashboard/OwnerAppShell";
 import {
+  AppButton,
+  AppFieldShell,
   AppBadge,
   AppEmptyState,
   AppInput,
@@ -12,6 +15,7 @@ import {
   AppSurface,
   cn
 } from "@/components/shared";
+import { cacheRestaurant } from "@/offline/repositories/restaurant";
 import { adminRequest } from "@/lib/api";
 import { normalizeModules } from "@/lib/modules";
 import { planLabels, subscriptionLabels } from "@/lib/plans";
@@ -21,6 +25,10 @@ export function OwnerSettingsPage() {
   const [token, setToken] = useState("");
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [message, setMessage] = useState("");
+  const [exchangeRate, setExchangeRate] = useState("");
+  const [savingRate, setSavingRate] = useState(false);
+  const [dayStart, setDayStart] = useState("04:00");
+  const [savingDayStart, setSavingDayStart] = useState(false);
   const [busy, setBusy] = useState(false);
   const modules = useMemo(() => restaurant ? normalizeModules(restaurant.plan, restaurant.modules) : null, [restaurant]);
   const subscriptionStatus = restaurant?.subscriptionStatus ?? "active";
@@ -40,12 +48,46 @@ export function OwnerSettingsPage() {
     setBusy(true);
     setMessage("");
     try {
-      setRestaurant(await adminRequest<Restaurant>("/api/owner/restaurant", authToken));
+      const nextRestaurant = await adminRequest<Restaurant>("/api/owner/restaurant", authToken);
+      setRestaurant(nextRestaurant);
+      setDayStart(businessDayStart(nextRestaurant));
+      setExchangeRate(nextRestaurant.usdExchangeRate ? String(nextRestaurant.usdExchangeRate) : "");
+      await cacheRestaurant(nextRestaurant);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "تعذر تحميل الإعدادات.");
     } finally {
       setBusy(false);
     }
+  }
+
+  async function saveDayStart(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (savingDayStart || savingRate || !restaurant) return;
+    if (!validBusinessDayStart(dayStart)) { setMessage("أدخل ساعة صحيحة لبداية اليوم المحاسبي."); return; }
+    setSavingDayStart(true); setMessage("");
+    try {
+      await adminRequest("/api/owner/restaurant", token, { method: "PATCH", body: JSON.stringify({ businessDayStartTime: dayStart }) });
+      const updated = { ...restaurant, businessDayStartTime: dayStart };
+      setRestaurant(updated);
+      await cacheRestaurant(updated);
+      setMessage("تم حفظ ساعة بداية اليوم المحاسبي. ستُعاد تجميع التقارير السابقة وفق الساعة الجديدة.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "تعذر حفظ ساعة بداية اليوم المحاسبي."); }
+    finally { setSavingDayStart(false); }
+  }
+
+  async function saveExchangeRate(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (savingRate || savingDayStart || !restaurant) return;
+    const rate = Number(exchangeRate);
+    if (!Number.isFinite(rate) || rate <= 0) { setMessage("أدخل سعر صرف موجباً."); return; }
+    setSavingRate(true); setMessage("");
+    try {
+      await adminRequest("/api/owner/restaurant", token, { method: "PATCH", body: JSON.stringify({ usdExchangeRate: rate }) });
+      const updated = { ...restaurant, usdExchangeRate: rate };
+      setRestaurant(updated); await cacheRestaurant(updated);
+      setMessage("تم حفظ سعر الصرف. الدفعات السابقة تحتفظ بأسعار صرفها.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "تعذر حفظ سعر الصرف."); }
+    finally { setSavingRate(false); }
   }
 
   return (
@@ -82,6 +124,27 @@ export function OwnerSettingsPage() {
               </div>
             </AppSurface>
 
+            <AppSurface title="اليوم المحاسبي">
+              <form onSubmit={saveDayStart} className="grid gap-3 sm:max-w-lg">
+                <p className="text-app-body text-app-muted">يبدأ اليوم في الساعة المختارة وينتهي قبل الساعة نفسها من اليوم التالي، بحسب توقيت المطعم ({businessZone(restaurant.timezone)}). تغيير الساعة يعيد تجميع التقارير القديمة والجديدة دون تغيير أوقات العمليات الأصلية. تُنسب إيرادات الطاولة إلى يوم فتح طلبها.</p>
+                <p className="text-app-helper text-app-muted">الساعة المحفوظة: {businessDayStart(restaurant)}</p>
+                <AppFieldShell label="ساعة بداية اليوم المحاسبي">
+                  <AppInput type="time" step="60" required value={dayStart} onChange={event => setDayStart(event.target.value)} />
+                </AppFieldShell>
+                <AppButton type="submit" disabled={savingRate} loading={savingDayStart}>حفظ ساعة بداية اليوم</AppButton>
+              </form>
+            </AppSurface>
+
+            <AppSurface title="الدفع والعملات">
+              <form onSubmit={saveExchangeRate} className="grid gap-3 sm:max-w-lg">
+                <p className="text-app-body text-app-muted">الأسعار والحسابات بالليرة السورية، ويمكن تسجيل الدفعات نقداً أو عبر شام كاش بالليرة أو الدولار.</p>
+                <AppFieldShell label="سعر الصرف: دولار واحد = ليرة سورية">
+                  <AppInput type="number" min="0.000001" step="any" required value={exchangeRate} onChange={event => setExchangeRate(event.target.value)} />
+                </AppFieldShell>
+                <AppButton type="submit" disabled={savingDayStart} loading={savingRate}>حفظ سعر الصرف</AppButton>
+              </form>
+            </AppSurface>
+
             <section className="grid gap-3 md:grid-cols-3">
               <SettingsLink href="/owner/billing" eyebrow="SaaS Billing" title="الفوترة والحدود" />
               <SettingsLink href="/owner/operations" eyebrow="Operations" title="إدارة المطعم والـ POS" />
@@ -94,7 +157,7 @@ export function OwnerSettingsPage() {
                   <ReadOnly label="اسم المطعم" value={restaurant.name} />
                   <ReadOnly label="رابط المنيو" value={`/${restaurant.slug}`} dir="ltr" />
                   <ReadOnly label="الهاتف" value={restaurant.phone || "غير مضبوط"} />
-                  <ReadOnly label="العملة" value={restaurant.currency || "غير مضبوطة"} />
+                  <ReadOnly label="عملة الأسعار" value={restaurant.currency === "SYP" ? "الليرة السورية" : restaurant.currency || "غير مضبوطة"} />
                   <ReadOnly label="العنوان" value={restaurant.address || "غير مضبوط"} />
                   <ReadOnly label="القالب" value={restaurant.template} />
                 </div>

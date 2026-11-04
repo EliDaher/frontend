@@ -26,7 +26,8 @@ export function formatMoney(value: number | string | undefined | null, currency 
   const amount = Number(value || 0);
   const formatted = Number.isFinite(amount) ? englishNumberFormatter.format(amount) : "0";
 
-  return `${formatted} ${currency}`.trim();
+  const label = currency === "SYP" ? "ل.س" : currency === "USD" ? "دولار" : currency;
+  return `${formatted} ${label}`.trim();
 }
 
 export function formatDate(value: string | number | Date | undefined | null) {

@@ -1,7 +1,8 @@
+import type { NormalizedPaymentPart, SettlementMode } from "@/lib/payments";
 export type TableStatus = "AVAILABLE" | "OCCUPIED" | "RESERVED" | "CLEANING" | "DISABLED";
 export type OrderStatus = "DRAFT" | "PENDING" | "CONFIRMED" | "PREPARING" | "READY" | "SERVED" | "COMPLETED" | "CANCELLED";
 export type OrderType = "DINE_IN" | "TAKEAWAY" | "DELIVERY" | "QR";
-export type PaymentMethod = "CASH" | "CARD" | "BANK_TRANSFER" | "WALLET" | "SPLIT" | "DEBT";
+export type PaymentMethod = "CASH" | "SHAM_CASH" | "CARD" | "BANK_TRANSFER" | "WALLET" | "SPLIT" | "DEBT";
 export type InvoiceType = "SALE" | "PURCHASE" | "REFUND";
 export type InvoiceStatus = "UNPAID" | "PARTIAL" | "PAID" | "VOID";
 export type InventoryTransactionType = "IN" | "OUT" | "ADJUST" | "REVERSE";
@@ -29,6 +30,10 @@ export type OpsOrderLine = {
 };
 
 export type OpsOrder = {
+  customerName?: string;
+  currency?: string;
+  settlementMode?: SettlementMode;
+  payments?: NormalizedPaymentPart[];
   id: string;
   name: string;
   tableId: string;
@@ -117,6 +122,10 @@ export type InvoiceItem = {
 };
 
 export type Invoice = {
+  customerName?: string;
+  currency?: string;
+  settlementMode?: SettlementMode;
+  payments?: NormalizedPaymentPart[];
   id: string;
   type: InvoiceType;
   status: InvoiceStatus;
@@ -138,6 +147,14 @@ export type Invoice = {
 };
 
 export type Expense = {
+  payments?: NormalizedPaymentPart[];
+  settlementMode?: SettlementMode;
+  paidAmount?: number;
+  remainingAmount?: number;
+  cashRegisterId?: string;
+  currency?: "SYP" | "USD";
+  originalAmount?: number;
+  exchangeRate?: number;
   id: string;
   category: string;
   amount: number;
@@ -149,6 +166,9 @@ export type Expense = {
 };
 
 export type OperationalPayment = {
+  currency?: "SYP" | "USD";
+  originalAmount?: number;
+  exchangeRate?: number;
   id: string;
   invoiceId: string;
   orderId: string;
@@ -172,6 +192,10 @@ export type CashRegister = {
 };
 
 export type CashMovement = {
+  method?: PaymentMethod;
+  currency?: "SYP" | "USD";
+  originalAmount?: number;
+  exchangeRate?: number;
   id: string;
   cashRegisterId: string;
   type: "IN" | "OUT";

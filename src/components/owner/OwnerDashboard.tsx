@@ -48,7 +48,7 @@ import type { InventoryItem, RecipeDraftLine, RecipeIngredient } from "@/types/o
 type TabId = "items" | "design" | "details" | "categories";
 type RestaurantForm = Pick<
   Restaurant,
-  "slug" | "name" | "logo" | "coverImage" | "description" | "phone" | "address" | "currency" | "receiptRestaurantName" | "vatNumber" | "receiptLocation" | "receiptPrinterIp" | "receiptPrinterPort" | "isActive" | "template" | "theme"
+  "slug" | "name" | "logo" | "coverImage" | "description" | "phone" | "address" | "currency" | "usdExchangeRate" | "receiptRestaurantName" | "vatNumber" | "receiptLocation" | "receiptPrinterIp" | "receiptPrinterPort" | "isActive" | "template" | "theme"
 >;
 type CategoryForm = Omit<Category, "id">;
 type ItemForm = Omit<MenuItem, "id" | "createdAt" | "updatedAt">;
@@ -264,6 +264,7 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
           phone: form.phone,
           address: form.address,
           currency: form.currency,
+          usdExchangeRate: form.usdExchangeRate || undefined,
           receiptRestaurantName: form.receiptRestaurantName,
           vatNumber: form.vatNumber,
           receiptLocation: form.receiptLocation,
@@ -697,8 +698,11 @@ export function OwnerDashboard({ embedded = false }: { embedded?: boolean } = {}
                   <AppFieldShell label="العنوان">
                     <AppInput value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} />
                   </AppFieldShell>
-                  <AppFieldShell label="العملة">
-                    <AppInput value={form.currency} onChange={(event) => setForm({ ...form, currency: event.target.value })} error={detailsErrors.some((error) => error.includes("العملة"))} />
+                  <AppFieldShell label="عملة الأسعار والحسابات">
+                    <AppInput value={form.currency === "SYP" ? "الليرة السورية" : form.currency} readOnly />
+                  </AppFieldShell>
+                  <AppFieldShell label="سعر الصرف: دولار واحد = ليرة سورية">
+                    <AppInput type="number" min="0.000001" step="any" value={form.usdExchangeRate ?? ""} onChange={(event) => setForm({ ...form, usdExchangeRate: Number(event.target.value) || undefined })} />
                   </AppFieldShell>
                   <AppFieldShell label="الباقة">
                     <AppInput value={planLabels[restaurant.plan]} readOnly className="bg-app-surface-muted text-app-muted" />
@@ -1588,6 +1592,7 @@ function toRestaurantForm(restaurant: Restaurant): RestaurantForm {
     phone: restaurant.phone,
     address: restaurant.address,
     currency: restaurant.currency,
+    usdExchangeRate: restaurant.usdExchangeRate,
     receiptRestaurantName: restaurant.receiptRestaurantName ?? "",
     vatNumber: restaurant.vatNumber ?? "105200001740",
     receiptLocation: restaurant.receiptLocation ?? "",

@@ -54,13 +54,13 @@ describe("pending cash balance effect", () => {
     ]), 0);
   });
 
-  it("does not count pending manual cash movements toward register balance", () => {
-    assert.equal(cashMovementAffectsRegisterBalance({ referenceType: "MANUAL" }), false);
+  it("counts pending manual cash movements toward register balance", () => {
+    assert.equal(cashMovementAffectsRegisterBalance({ referenceType: "MANUAL" }), true);
     assert.equal(cashMovementAffectsRegisterBalance({ referenceType: "ORDER" }), true);
     assert.equal(pendingCashBalanceEffect([
       { type: "IN", amount: 100, referenceType: "MANUAL", syncStatus: "pending" },
       { type: "IN", amount: 40, referenceType: "ORDER", syncStatus: "pending" },
       { type: "OUT", amount: 15, referenceType: "ORDER_CANCEL", syncStatus: "failed" }
-    ]), 25);
+    ]), 125);
   });
 });

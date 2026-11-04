@@ -6,7 +6,7 @@ import type { CashMovement, InventoryItem, JournalEntry, OperationalPayment, Rec
 export const tableStatuses = ["AVAILABLE", "OCCUPIED", "RESERVED", "CLEANING", "DISABLED"] as const;
 export const orderStatuses = ["DRAFT", "PENDING", "CONFIRMED", "PREPARING", "READY", "SERVED", "COMPLETED", "CANCELLED"] as const;
 export const orderTypes = ["DINE_IN", "TAKEAWAY", "DELIVERY", "QR"] as const;
-export const paymentMethods = ["CASH", "CARD", "BANK_TRANSFER", "WALLET", "SPLIT", "DEBT"] as const;
+export const paymentMethods = ["CASH", "SHAM_CASH"] as const;
 export const invoiceTypes = ["SALE", "PURCHASE", "REFUND"] as const;
 export const invoiceStatuses = ["UNPAID", "PARTIAL", "PAID", "VOID"] as const;
 export const accountTypes = ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"] as const;
@@ -29,26 +29,26 @@ export type DateRange = {
   to: string;
 };
 
-export function buildCashSeries(movements: CashMovement[], range?: DateRange): CashSeriesPoint[] {
+export function buildCashSeries(movements: CashMovement[], range?: DateRange, dayKey: (movement: CashMovement) => string = movement => localDateKey(movement.createdAt)): CashSeriesPoint[] {
   if (range?.from && range?.to) {
     const fromDate = parseLocalDate(range.from);
     const toDate = parseLocalDate(range.to);
     if (fromDate && toDate && fromDate <= toDate) {
       const days = daysBetween(fromDate, toDate);
       if (days <= 31) {
-        return Array.from({ length: days }, (_, index) => buildCashSeriesPoint(movements, addDays(fromDate, index), "day"));
+        return Array.from({ length: days }, (_, index) => buildCashSeriesPoint(movements, addDays(fromDate, index), "day", dayKey));
       }
-      return buildMonthlyCashSeries(movements, fromDate, toDate);
+      return buildMonthlyCashSeries(movements, fromDate, toDate, dayKey);
     }
   }
 
-  return Array.from({ length: 7 }, (_, index) => buildCashSeriesPoint(movements, addDays(new Date(), index - 6), "day"));
+  return Array.from({ length: 7 }, (_, index) => buildCashSeriesPoint(movements, addDays(new Date(), index - 6), "day", dayKey));
 }
 
-function buildCashSeriesPoint(movements: CashMovement[], date: Date, mode: "day" | "month"): CashSeriesPoint {
+function buildCashSeriesPoint(movements: CashMovement[], date: Date, mode: "day" | "month", dayKey: (movement: CashMovement) => string): CashSeriesPoint {
   const key = mode === "month" ? localMonthKey(date) : localDateKey(date);
   const matchingMovements = movements.filter((movement) => {
-    const movementKey = mode === "month" ? localMonthKey(movement.createdAt) : localDateKey(movement.createdAt);
+    const movementKey = mode === "month" ? dayKey(movement).slice(0, 7) : dayKey(movement);
     return movementKey === key;
   });
   const cashIn = sumAmounts(matchingMovements.filter((movement) => movement.type === "IN"));
@@ -65,13 +65,13 @@ function buildCashSeriesPoint(movements: CashMovement[], date: Date, mode: "day"
   };
 }
 
-function buildMonthlyCashSeries(movements: CashMovement[], fromDate: Date, toDate: Date) {
+function buildMonthlyCashSeries(movements: CashMovement[], fromDate: Date, toDate: Date, dayKey: (movement: CashMovement) => string) {
   const points: CashSeriesPoint[] = [];
   const cursor = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
   const end = new Date(toDate.getFullYear(), toDate.getMonth(), 1);
 
   while (cursor <= end) {
-    points.push(buildCashSeriesPoint(movements, cursor, "month"));
+    points.push(buildCashSeriesPoint(movements, cursor, "month", dayKey));
     cursor.setMonth(cursor.getMonth() + 1);
   }
 
@@ -80,7 +80,7 @@ function buildMonthlyCashSeries(movements: CashMovement[], fromDate: Date, toDat
 
 export function buildPaymentBreakdown(payments: OperationalPayment[]): PaymentBreakdownPoint[] {
   const grouped = payments.reduce<Record<string, number>>((result, payment) => {
-    result[payment.method] = (result[payment.method] ?? 0) + numberValue(payment.amount);
+    result[payment.method] = (result[payment.method] ?? 0) + (payment.type === "REFUND" ? -1 : 1) * numberValue(payment.amount);
     return result;
   }, {});
 
@@ -179,11 +179,12 @@ function dateValue(value: string | undefined) {
 
 export function paymentMethodLabel(method: string) {
   const labels: Record<string, string> = {
-    CASH: "نقدي",
+    CASH: "نقداً",
+    SHAM_CASH: "شام كاش",
     CARD: "بطاقة",
     BANK_TRANSFER: "تحويل بنكي",
     WALLET: "محفظة",
-    SPLIT: "مقسّم",
+    SPLIT: "جزئي",
     DEBT: "دين"
   };
   return labels[method] ?? method;
@@ -199,7 +200,7 @@ export function journalStatusLabel(status: JournalEntry["status"]) {
 }
 
 export function option(value: string) {
-  return { value, label: value };
+  return { value, label: paymentMethodLabel(value) };
 }
 
 export function nameById(items: Array<{ id: string; name: string }>, id: string) {
@@ -251,4 +252,8 @@ export function formatActionError(error: unknown) {
     return "تعذر تنفيذ العملية الآن. تحقق من الاتصال أو سجّل الدخول مجددًا ثم حاول مرة أخرى.";
   }
   return message || "حدث خطأ غير متوقع.";
+}
+
+export function paymentSummary(record: { paymentMethod: string; payments?: Array<{ method: string }> }) {
+  return record.payments ? [...new Set(record.payments.map(payment => paymentMethodLabel(payment.method)))].join(" + ") || "دين" : paymentMethodLabel(record.paymentMethod);
 }

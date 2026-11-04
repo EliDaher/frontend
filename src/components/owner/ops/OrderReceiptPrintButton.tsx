@@ -1,4 +1,5 @@
 "use client";
+import { paymentMethodLabel } from "./OpsPageShared";
 
 import { Printer } from "lucide-react";
 import QRCode from "qrcode";
@@ -224,6 +225,7 @@ export function OrderReceiptPrintButton({
             </p>
             <p className="receipt-submeta">فتح الفاتورة : {receipt.invoiceDateTime}</p>
             <p className="receipt-sale-label">{receipt.saleLabel}</p>
+            {receipt.customerName ? <p className="break-words">اسم الزبون: {receipt.customerName}</p> : null}
           </header>
 
           <table className="receipt-items">
@@ -254,6 +256,7 @@ export function OrderReceiptPrintButton({
             <ReceiptTotal label="اجمالي المبلغ المستحق" currency={receipt.currency} amount={receipt.payableAmount} strong />
             <ReceiptTotal label="المدفوع" currency={receipt.currency} amount={receipt.paidAmount} />
             <ReceiptTotal label="المتبقي" currency={receipt.currency} amount={receipt.remainingAmount} />
+            {receipt.payments.map((payment, index) => <p key={index} className="text-xs">{paymentMethodLabel(payment.method)}: {payment.originalAmount} {payment.currency === "USD" ? "دولار" : "ل.س"}{payment.currency === "USD" ? ` · الصرف ${payment.exchangeRate} · ${payment.amount} ل.س` : ""}</p>)}
           </section>
 
           <div className="receipt-qr">

@@ -6,7 +6,9 @@
     "dev": "node ./node_modules/next/dist/bin/next dev",
     "build": "node ./node_modules/next/dist/bin/next build",
     "start": "node ./node_modules/next/dist/bin/next start",
-    "lint": "node ./node_modules/typescript/bin/tsc --noEmit"
+    "lint": "node ./node_modules/typescript/bin/tsc --noEmit",
+    "test:business-day": "node --experimental-strip-types --experimental-loader ./tests/alias-loader.mjs --test tests/business-day.test.mjs && node tests/table-history.cjs",
+    "test:payments": "node --experimental-strip-types --experimental-test-module-mocks --experimental-loader ./tests/alias-loader.mjs --test tests/payments-offline.test.mjs tests/receipt.test.mjs tests/financial-cache-rules.test.mjs tests/cash-balances.test.mjs"
   },
   "dependencies": {
     "dexie": "^4.4.5",
@@ -24,6 +26,7 @@
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "autoprefixer": "^10.4.20",
+    "fake-indexeddb": "^6.2.7",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.2"

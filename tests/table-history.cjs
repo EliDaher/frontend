@@ -6,7 +6,10 @@ const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '../src/lib/table-history.ts'), 'utf8');
 const output = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
 const exportsObject = {};
-vm.runInNewContext(output, { exports: exportsObject, Intl, Date });
+const businessSource = fs.readFileSync(path.join(__dirname, '../src/lib/business-day.ts'), 'utf8');
+const businessExports = {};
+vm.runInNewContext(ts.transpileModule(businessSource, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, { exports: businessExports, Intl, Date });
+vm.runInNewContext(output, { exports: exportsObject, Intl, Date, require: () => businessExports });
 const { historyDay, historyZone, validHistoryDay, shiftHistoryDay, ordersForHistoryDay } = exportsObject;
 assert.equal(historyDay('2026-10-18T21:30:00Z', 'Asia/Damascus'), '2026-10-19');
 assert.equal(historyDay('2026-10-18T20:59:59Z', 'Asia/Damascus'), '2026-10-18');
@@ -21,7 +24,7 @@ const orders = [
  { id: 'takeaway', tableId: '', orderedAt: '2026-10-18T22:30:00Z' },
  { id: 'invalid', tableId: '1', orderedAt: 'invalid' }
 ];
-assert.equal(ordersForHistoryDay(orders, '2026-10-18', 'Asia/Damascus')[0].id, 'before-midnight');
-assert.equal(ordersForHistoryDay(orders, '2026-10-19', 'Asia/Damascus').map(o => o.id).join(','), 'later,legacy');
+assert.equal(ordersForHistoryDay(orders, '2026-10-18', 'Asia/Damascus', { businessDayStartTime: '00:00' })[0].id, 'before-midnight');
+assert.equal(ordersForHistoryDay(orders, '2026-10-19', 'Asia/Damascus', { businessDayStartTime: '00:00' }).map(o => o.id).join(','), 'later,legacy');
 assert.equal(ordersForHistoryDay(orders, '2026-10-20', 'Asia/Damascus').length, 0);
 console.log('Table history: date boundaries, fallback dates, order sorting, cancelled and missing tables passed.');

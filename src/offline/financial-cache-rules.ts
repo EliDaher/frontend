@@ -24,7 +24,7 @@ export type PendingCashMovementSnapshot = {
 };
 
 export function cashMovementAffectsRegisterBalance(movement: Pick<PendingCashMovementSnapshot, "referenceType">) {
-  return ["ORDER", "PAYMENT", "ORDER_CANCEL"].includes(movement.referenceType ?? "");
+  return ["ORDER", "PAYMENT", "ORDER_CANCEL", "MANUAL", "EXPENSE"].includes(movement.referenceType ?? "");
 }
 
 export function pendingCashBalanceEffect(movements: PendingCashMovementSnapshot[]) {

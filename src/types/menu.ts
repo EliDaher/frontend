@@ -55,6 +55,7 @@ export type Restaurant = {
   phone: string;
   address: string;
   currency: string;
+  usdExchangeRate?: number;
   receiptRestaurantName?: string;
   vatNumber?: string;
   receiptLocation?: string;
@@ -76,6 +77,7 @@ export type Restaurant = {
   customDomainVerifiedAt?: string;
   modules?: Partial<RestaurantModules>;
   timezone?: string;
+  businessDayStartTime?: string;
   taxRate?: number;
   serviceChargeRate?: number;
   createdAt?: string;

@@ -1,4 +1,6 @@
 "use client";
+import { PaymentEditor, type PaymentDraft } from "./PaymentEditor";
+import { InvoiceSettlementButton } from "./InvoiceSettlementButton";
 
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
@@ -16,6 +18,7 @@ import {
   PopupForm,
   cn
 } from "@/components/shared";
+import { hydrateFinancialHistory, listLocalCashRegisters } from "@/offline/repositories/financial-history";
 import { adminRequest } from "@/lib/api";
 import { formatInteger } from "@/lib/format";
 import { useLiveQuery } from "@/offline/hooks/useLiveQuery";
@@ -51,12 +54,14 @@ export function InvoicesOpsPage() {
   const [editingId, setEditingId] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [pendingDeleteInvoice, setPendingDeleteInvoice] = useState<Invoice | null>(null);
+  const [paymentDraft, setPaymentDraft] = useState<PaymentDraft>({ settlementMode: "DEBT", payments: [] });
   const [form, setForm] = useState<InvoiceForm>(emptyInvoiceForm());
   const tenantId = state.restaurant?.id ?? "";
   const offlineContext = useMemo<OfflineContext | null>(() => {
     if (!state.token || !tenantId) return null;
     return { token: state.token, tenantId, userId: state.restaurant?.ownerUserId ?? "owner" };
   }, [state.restaurant?.ownerUserId, state.token, tenantId]);
+  const { value: registers } = useLiveQuery(() => tenantId ? listLocalCashRegisters(tenantId) : Promise.resolve([]), [], [tenantId]);
   const { value: invoices } = useLiveQuery(() => tenantId ? listLocalInvoices(tenantId) : Promise.resolve([]), [] as LocalInvoice[], [tenantId]);
   const { value: suppliers } = useLiveQuery(() => tenantId ? listLocalSuppliers(tenantId) : Promise.resolve([]), [] as Supplier[], [tenantId]);
 
@@ -66,6 +71,7 @@ export function InvoicesOpsPage() {
 
   async function load() {
     if (!offlineContext) return;
+    hydrateFinancialHistory(offlineContext);
     await Promise.all([
       hydrateInvoices(offlineContext),
       hydrateInvoiceSuppliers(offlineContext, state.modules?.purchasing)
@@ -91,6 +97,7 @@ export function InvoicesOpsPage() {
       discount: form.discount,
       tax: form.tax,
       serviceCharge: form.serviceCharge,
+      ...(!editingId ? { settlementMode: paymentDraft.settlementMode, payments: paymentDraft.payments } : {}),
       paidAmount: form.paidAmount,
       paymentMethod: form.paymentMethod,
       dueDate: form.dueDate,
@@ -114,6 +121,7 @@ export function InvoicesOpsPage() {
   }
 
   function openNewForm() {
+    setPaymentDraft({ settlementMode: "DEBT", payments: [] });
     setEditingId("");
     setForm(emptyInvoiceForm());
     setFormOpen(true);
@@ -275,11 +283,7 @@ export function InvoicesOpsPage() {
                 {invoiceTypes.map((type) => <option key={type} value={type}>{invoiceTypeLabel(type)}</option>)}
               </AppSelect>
             </AppFieldShell>
-            <AppFieldShell label="الحالة">
-              <AppSelect value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as InvoiceStatus })}>
-                {invoiceStatuses.map((nextStatus) => <option key={nextStatus} value={nextStatus}>{invoiceStatusLabel(nextStatus)}</option>)}
-              </AppSelect>
-            </AppFieldShell>
+
           </div>
           <AppFieldShell label="المورد">
             <AppSelect value={form.supplierId} onChange={(event) => setForm({ ...form, supplierId: event.target.value })}>
@@ -300,15 +304,10 @@ export function InvoicesOpsPage() {
             <AppFieldShell label="خصم">
               <AppInput type="number" min="0" value={form.discount} onChange={(event) => setForm({ ...form, discount: Number(event.target.value) })} />
             </AppFieldShell>
-            <AppFieldShell label="مدفوع">
-              <AppInput type="number" min="0" value={form.paidAmount} onChange={(event) => setForm({ ...form, paidAmount: Number(event.target.value) })} />
-            </AppFieldShell>
+
           </div>
-          <AppFieldShell label="طريقة الدفع">
-            <AppSelect value={form.paymentMethod} onChange={(event) => setForm({ ...form, paymentMethod: event.target.value as PaymentMethod })}>
-              {paymentMethods.map((method) => <option key={method} value={method}>{option(method).label}</option>)}
-            </AppSelect>
-          </AppFieldShell>
+          {!editingId && <PaymentEditor registers={registers} total={Math.max(form.quantity * form.unitPrice - form.discount + form.tax + form.serviceCharge, 0)} value={paymentDraft} onChange={setPaymentDraft} exchangeRate={state.restaurant?.usdExchangeRate} baseCurrency={state.restaurant?.currency} />}
+
           <AppFieldShell label="ملاحظات">
             <AppTextarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
           </AppFieldShell>
@@ -404,8 +403,9 @@ function InvoiceRowActions({
   return (
     <div className={cn("flex flex-wrap gap-2", className)}>
       <InvoiceReceiptPrintButton invoice={invoice} restaurant={restaurant} />
-      <AppButton type="button" variant="secondary" size="sm" onClick={onEdit} disabled={!confirmed}>تعديل</AppButton>
-      <AppButton type="button" variant="ghost" size="sm" onClick={onDelete} disabled={!confirmed} className="text-app-danger hover:bg-app-danger-soft">حذف</AppButton>
+      <InvoiceSettlementButton invoice={invoice} restaurant={restaurant} />
+      <AppButton type="button" variant="secondary" size="sm" onClick={onEdit} disabled={!confirmed || Boolean(invoice.orderId) || invoice.paidAmount > 0}>تعديل</AppButton>
+      <AppButton type="button" variant="ghost" size="sm" onClick={onDelete} disabled={!confirmed || Boolean(invoice.orderId) || invoice.paidAmount > 0} className="text-app-danger hover:bg-app-danger-soft">حذف</AppButton>
     </div>
   );
 }
@@ -468,6 +468,7 @@ function invoiceTypeLabel(type: InvoiceType) {
 
 function invoicePartyLabel(invoice: Invoice, suppliers: Supplier[]) {
   if (invoice.supplierId) return suppliers.find((supplier) => supplier.id === invoice.supplierId)?.name ?? invoice.supplierId;
+  if (invoice.customerName) return invoice.customerName;
   if (invoice.orderId) return invoice.orderId;
   return "-";
 }

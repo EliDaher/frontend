@@ -1,10 +1,12 @@
 "use client";
+import type { PaymentDraft } from "./PaymentEditor";
+import { CheckoutDialog } from "./CheckoutDialog";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Info, MoreHorizontal, Minus, Plus, Search, StickyNote, Trash2 } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Info, MoreHorizontal, Minus, Plus, Search, StickyNote, Trash2, X } from "lucide-react";
 import { AppBadge, AppButton, AppEmptyState, AppFieldShell, AppInput, AppSelect, AppSurface, AppTextarea, PopupForm, cn } from "@/components/shared";
 import { saveTableOnline } from "@/lib/table-administration";
 import { duplicateTableNameMessage, isDuplicateTableNumberError, normalizeTableName, sortTablesByNumber, validateTableForm } from "@/lib/table-number";
@@ -16,6 +18,7 @@ import { hydrateReferenceData, listLocalCashRegisters, listLocalCategories, list
 import { getLocalTable, hydrateTables, listLocalTables, type OfflineContext } from "@/offline/repositories/tables";
 import type { Category, MenuItem, Restaurant } from "@/types/menu";
 import type { CashRegister, OpsOrder, OpsTable, OrderStatus, PaymentMethod, RecipeIngredient } from "@/types/ops";
+import { groupCategoryRows } from "./category-row-layout";
 import { money, orderStatusLabels, OpsShell, paymentAmountForMethod, useOpsPage } from "./OpsShared";
 import { OrderReceiptPrintButton } from "./OrderReceiptPrintButton";
 import { formatActionError, option, orderTypes, paymentMethods, tableStatuses } from "./OpsPageShared";
@@ -54,8 +57,11 @@ type StartCartLine = {
 };
 
 type CompleteCurrentOrderConfirmation = {
+  customerName?: string;
   order: OpsOrder;
   paymentMethod: PaymentMethod;
+  settlementMode?: PaymentDraft["settlementMode"];
+  payments?: PaymentDraft["payments"];
   paidAmount: number;
   cashRegisterId: string;
   note: string;
@@ -567,6 +573,7 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
     const paidAmount = paymentAmountForMethod(completeForm.paymentMethod as PaymentMethod, order.total, completeForm.paidAmount);
     setPendingCompleteOrder({
       order,
+      customerName: order.customerName ?? "",
       paymentMethod: completeForm.paymentMethod as PaymentMethod,
       paidAmount,
       cashRegisterId: completeForm.cashRegisterId,
@@ -577,13 +584,13 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
   async function confirmCompleteCurrentOrder() {
     if (!pendingCompleteOrder) return;
     const { order, paymentMethod, paidAmount, cashRegisterId, note } = pendingCompleteOrder;
-    if (paymentMethod === "SPLIT" && paidAmount <= 0) {
-      state.setMessage("أدخل المبلغ المدفوع قبل إنهاء طلب الدفع المقسّم.");
-      return;
-    }
+
     await runOrderAction(async () => {
       if (!offlineContext) throw new Error("تعذر تحديد المطعم الحالي.");
       await completeLocalOrder(offlineContext, order.id, {
+        customerName: pendingCompleteOrder.customerName,
+        settlementMode: pendingCompleteOrder.settlementMode ?? "FULL",
+        payments: pendingCompleteOrder.payments ?? (order.total > 0 ? [{ method: paymentMethod === "SHAM_CASH" ? "SHAM_CASH" : "CASH", currency: "SYP", originalAmount: order.total, exchangeRate: 1, cashRegisterId }] : []),
         paymentMethod,
         paidAmount,
         cashRegisterId: cashRegisterId || undefined,
@@ -780,6 +787,7 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
 
       <PopupForm open={orderDetailsOpen} onClose={() => setOrderDetailsOpen(false)} title="تفاصيل الطلب" maxWidth="md">
         <div className="grid gap-3">
+          {order?.customerName ? <p className="break-words">اسم الزبون: {order.customerName}</p> : null}
           <AppFieldShell label="اسم الطلب">
             <AppInput value={orderForm.name} disabled={lockedOrder} onChange={(event) => setOrderForm({ ...orderForm, name: event.target.value })} />
           </AppFieldShell>
@@ -828,10 +836,22 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
         </form>
       </PopupForm>
 
-      <PopupForm open={addItemsOpen} onClose={closeAddItems} title="إضافة أصناف" description={table ? `طاولة ${table.name}` : undefined} maxWidth="wide">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(320px,38%)] lg:[direction:ltr]">
+      <PopupForm
+        open={addItemsOpen}
+        onClose={closeAddItems}
+        title="إضافة أصناف"
+        maxWidth="wide"
+        fillHeight
+        headerContent={(
+          <span className="rounded-app-md bg-app-surface-muted px-2 py-1 text-sm font-bold text-app-ink">
+            طاولة {table?.name ?? activeTableId}
+          </span>
+        )}
+      >
+        <div className="grid min-h-0 gap-3 lg:flex-1 lg:grid-cols-[minmax(320px,1fr)_minmax(0,2fr)] lg:grid-rows-[minmax(0,1fr)] lg:[direction:ltr]">
           <SelectedItemsPanel
             title="الأصناف المضافة"
+            fillHeight
             emptyTitle="لم تتم إضافة أصناف"
             emptyDescription="اضغط + بجانب أي صنف لإضافته مؤقتًا هنا."
             lines={addCart}
@@ -844,8 +864,11 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
             onQuantityChange={updateAddCartLine}
             onNoteClick={openAddCartNote}
           />
-          <div className="rounded-app-lg border border-app-border bg-app-surface-muted p-3 lg:[direction:rtl]">
+          <div className="min-w-0 rounded-app-lg border border-app-border bg-app-surface-muted p-3 lg:min-h-0 lg:overflow-hidden lg:[direction:rtl]">
             <MenuItemSelectionPanel
+              twoRowCategories
+              collapsibleSearch
+              fillHeight
               query={addItemQuery}
               onQueryChange={setAddItemQuery}
               activeCategoryId={activeAddCategoryId}
@@ -913,9 +936,14 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
         )}
       </PopupForm>
 
-      <PopupForm open={startOrderOpen} onClose={closeStartOrder} title="بدء طلب" description={table ? `الطاولة: ${table.name}` : undefined} maxWidth="wide">
-        <form onSubmit={createOrder} className="grid gap-3">
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-app-md border border-app-border bg-app-surface-muted px-3 py-2">
+      <PopupForm
+        open={startOrderOpen}
+        onClose={closeStartOrder}
+        title="بدء طلب"
+        maxWidth="wide"
+        fillHeight
+        headerContent={(
+          <div className="flex flex-wrap items-center gap-2 rounded-app-md bg-app-surface-muted px-2 py-1">
             <div className="flex flex-wrap items-center gap-2 text-sm font-bold text-app-ink">
               <span>طاولة {table?.name ?? activeTableId}</span>
               <span className="text-app-meta text-app-muted" aria-hidden="true">•</span>
@@ -925,15 +953,19 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
             </div>
             <button
               type="button"
+              aria-expanded={startDetailsOpen}
+              aria-controls="start-order-details"
               onClick={() => setStartDetailsOpen((open) => !open)}
               className="rounded-app-md px-2 py-1 text-xs font-bold text-app-primary transition-colors hover:bg-app-primary-soft focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft"
             >
               تفاصيل إضافية
             </button>
           </div>
-
+        )}
+      >
+        <form onSubmit={createOrder} className="grid min-h-0 gap-3 lg:flex lg:flex-1 lg:flex-col">
           {startDetailsOpen ? (
-            <div className="grid gap-3 rounded-app-lg border border-app-border bg-app-surface-muted p-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div id="start-order-details" className="grid shrink-0 gap-3 rounded-app-lg border border-app-border bg-app-surface-muted p-3 sm:grid-cols-2 lg:max-h-[35dvh] lg:grid-cols-4 lg:overflow-y-auto">
               <AppFieldShell label="اسم الطلب">
                 <AppInput value={startOrderForm.name} onChange={(event) => updateStartOrderName(event.target.value)} />
               </AppFieldShell>
@@ -968,9 +1000,10 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
             </div>
           ) : null}
 
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(320px,38%)] lg:[direction:ltr]">
+          <div className="grid min-h-0 gap-3 lg:flex-1 lg:grid-cols-[minmax(320px,1fr)_minmax(0,2fr)] lg:grid-rows-[minmax(0,1fr)] lg:[direction:ltr]">
             <SelectedItemsPanel
               title="الطلب الجديد"
+              fillHeight
               emptyTitle="السلة فارغة"
               emptyDescription="أضف صنفًا أو أكثر قبل إنشاء الطلب."
               lines={startCart}
@@ -984,8 +1017,11 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
               onQuantityChange={updateStartCartQuantity}
               onNoteClick={openStartCartNote}
             />
-            <div className="rounded-app-lg border border-app-border bg-app-surface-muted p-3 lg:[direction:rtl]">
+            <div className="min-w-0 rounded-app-lg border border-app-border bg-app-surface-muted p-3 lg:min-h-0 lg:overflow-hidden lg:[direction:rtl]">
               <MenuItemSelectionPanel
+                twoRowCategories
+                collapsibleSearch
+                fillHeight
                 query={startItemQuery}
                 onQueryChange={setStartItemQuery}
                 activeCategoryId={activeStartCategoryId}
@@ -1034,68 +1070,24 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
         </div>
       </PopupForm>
 
-      <PopupForm
-        open={Boolean(pendingCompleteOrder)}
+      {pendingCompleteOrder && <CheckoutDialog
+        key={pendingCompleteOrder.order.id}
+        description={pendingCompleteOrder.order.name || pendingCompleteOrder.order.id}
+        total={pendingCompleteOrder.order.total}
+        value={{ settlementMode: pendingCompleteOrder.settlementMode ?? "FULL", payments: pendingCompleteOrder.payments ?? (pendingCompleteOrder.order.total > 0 ? [{ method: pendingCompleteOrder.paymentMethod === "SHAM_CASH" ? "SHAM_CASH" : "CASH", currency: "SYP", originalAmount: pendingCompleteOrder.order.total, exchangeRate: 1, cashRegisterId: pendingCompleteOrder.cashRegisterId }] : []) }}
+        onChange={draft => setPendingCompleteOrder(current => current ? { ...current, ...draft } : current)}
+        customerName={pendingCompleteOrder.customerName ?? ""}
+        onCustomerNameChange={customerName => setPendingCompleteOrder(current => current ? { ...current, customerName } : current)}
+        note={pendingCompleteOrder.note}
+        onNoteChange={note => { setPendingCompleteOrder(current => current ? { ...current, note } : current); }}
+        exchangeRate={state.restaurant?.usdExchangeRate}
+        baseCurrency={state.restaurant?.currency}
+        registers={cashRegisters}
+        busy={orderActionBusy}
         onClose={() => setPendingCompleteOrder(null)}
-        title="إنهاء الطلب"
-        description={pendingCompleteOrder ? `سيتم إنهاء الطلب ${pendingCompleteOrder.order.name || pendingCompleteOrder.order.id} بقيمة ${money(pendingCompleteOrder.order.total, state.restaurant?.currency)}.` : undefined}
-        maxWidth="md"
-      >
-        {pendingCompleteOrder ? (
-          <div className="grid gap-3">
-          <div className="rounded-app-md border border-app-success-soft bg-app-success-soft px-3 py-2 text-lg font-black text-app-success">
-            الإجمالي: {money(pendingCompleteOrder.order.total, state.restaurant?.currency)}
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <AppFieldShell label="طريقة الدفع">
-              <AppSelect
-                value={pendingCompleteOrder.paymentMethod}
-                onChange={(event) => {
-                  const paymentMethod = event.target.value as PaymentMethod;
-                  setPendingCompleteOrder({
-                    ...pendingCompleteOrder,
-                    paymentMethod,
-                    paidAmount: paymentAmountForMethod(paymentMethod, pendingCompleteOrder.order.total, pendingCompleteOrder.paidAmount)
-                  });
-                }}
-              >
-                {paymentMethods.map((method) => <option key={method} value={method}>{option(method).label}</option>)}
-              </AppSelect>
-            </AppFieldShell>
-            <AppFieldShell label="المدفوع">
-              <AppInput type="number" min="0" value={pendingCompleteOrder.paidAmount} onChange={(event) => setPendingCompleteOrder({ ...pendingCompleteOrder, paidAmount: Number(event.target.value) })} />
-            </AppFieldShell>
-          </div>
-          {cashRegisters.length ? (
-            <AppFieldShell label="الصندوق">
-              <AppSelect value={pendingCompleteOrder.cashRegisterId} onChange={(event) => setPendingCompleteOrder({ ...pendingCompleteOrder, cashRegisterId: event.target.value })}>
-                <option value="">بدون صندوق</option>
-                {cashRegisters.map((register) => (
-                  <option key={register.id} value={register.id}>
-                    {register.name} - {money(register.currentBalance, state.restaurant?.currency)}
-                  </option>
-                ))}
-              </AppSelect>
-            </AppFieldShell>
-          ) : (
-            <AppFieldShell label="الصندوق">
-              <AppInput value={pendingCompleteOrder.cashRegisterId} onChange={(event) => setPendingCompleteOrder({ ...pendingCompleteOrder, cashRegisterId: event.target.value })} />
-            </AppFieldShell>
-          )}
-          <AppFieldShell label="ملاحظة الدفع">
-            <AppInput value={pendingCompleteOrder.note} onChange={(event) => setPendingCompleteOrder({ ...pendingCompleteOrder, note: event.target.value })} />
-          </AppFieldShell>
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <AppButton type="button" variant="secondary" onClick={() => setPendingCompleteOrder(null)} disabled={orderActionBusy} className="w-full sm:w-auto">
-              إلغاء
-            </AppButton>
-            <AppButton type="button" data-autofocus onClick={() => void confirmCompleteCurrentOrder()} loading={orderActionBusy} disabled={orderActionBusy} className="w-full sm:w-auto">
-              إنهاء الطلب
-            </AppButton>
-          </div>
-          </div>
-        ) : null}
-      </PopupForm>
+        onConfirm={() => void confirmCompleteCurrentOrder()}
+      />}
+
     </OpsShell>
   );
 }
@@ -1256,7 +1248,8 @@ function SelectedItemsPanel({
   actionDisabled,
   onAction,
   onQuantityChange,
-  onNoteClick
+  onNoteClick,
+  fillHeight = false
 }: {
   title: string;
   emptyTitle: string;
@@ -1272,9 +1265,10 @@ function SelectedItemsPanel({
   onAction?: () => void;
   onQuantityChange: (index: number, quantity: number) => void;
   onNoteClick: (index: number) => void;
+  fillHeight?: boolean;
 }) {
   return (
-    <aside className="flex max-h-[calc(100dvh-10rem)] min-h-[360px] flex-col rounded-app-lg border border-app-border bg-app-surface p-3 lg:[direction:rtl]">
+    <aside className={cn("flex min-w-0 max-h-[calc(100dvh-10rem)] min-h-[360px] flex-col rounded-app-lg border border-app-border bg-app-surface p-3 lg:[direction:rtl]", fillHeight && "lg:min-h-0 lg:max-h-none")}>
       <div className="flex items-center justify-between gap-2 border-b border-app-border pb-3">
         <p className="text-sm font-bold text-app-ink">{title}</p>
         <p className="text-app-meta text-app-muted">{formatInteger(lines.length)} سطر</p>
@@ -1594,6 +1588,87 @@ function useMenuPickerData(menuItems: MenuItem[], categories: Category[], query:
   }, [activeCategoryId, categories, filteredItems, menuItems]);
 }
 
+const categoryButtonClass = "shrink-0 rounded-app-md border px-3 py-2 text-xs font-semibold";
+
+function TwoRowCategoryTabs({ tabs, activeId, onChange }: {
+  tabs: MenuPickerTab[];
+  activeId: string;
+  onChange: (id: string) => void;
+}) {
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const measureRef = useRef<HTMLDivElement | null>(null);
+  const [layout, setLayout] = useState<{ width: number; pages: number[][][] }>({ width: 0, pages: [] });
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    const measurement = measureRef.current;
+    if (!viewport || !measurement) return;
+    let disposed = false;
+    function measure() {
+      if (disposed || !viewport || !measurement) return;
+      const width = viewport.clientWidth;
+      if (!width) return;
+      const widths = Array.from(measurement.children, (child) => child.getBoundingClientRect().width);
+      setLayout({ width, pages: groupCategoryRows(widths, width, 8) });
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(viewport);
+    observer.observe(measurement);
+    measure();
+    void document.fonts.ready.then(measure);
+    return () => {
+      disposed = true;
+      observer.disconnect();
+    };
+  }, [tabs]);
+
+  return (
+    <div className="relative min-w-0 flex-1 basis-0 self-start" dir="rtl">
+      <div ref={measureRef} aria-hidden="true" className="pointer-events-none invisible absolute inset-x-0 top-0 flex overflow-hidden">
+        {tabs.map((tab) => (
+          <span key={tab.id} className={cn(categoryButtonClass, "w-max whitespace-normal break-words")} style={{ maxWidth: "min(240px, 100%)" }}>
+            {tab.name} ({formatInteger(tab.count)})
+          </span>
+        ))}
+      </div>
+      <div ref={viewportRef} className="overflow-x-auto pb-1" aria-label="تصنيفات الأصناف">
+        <div className="flex items-start gap-2">
+          {layout.pages.map((rows, pageIndex) => (
+            <div key={pageIndex} className="grid shrink-0 content-start gap-2" style={{ width: layout.width }}>
+              {rows.map((indices, rowIndex) => (
+                <div key={rowIndex} className="flex items-stretch gap-2">
+                  {indices.map((index) => {
+                    const tab = tabs[index];
+                    if (!tab) return null;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        aria-pressed={activeId === tab.id}
+                        onClick={() => onChange(tab.id)}
+                        className={cn(
+                          categoryButtonClass,
+                          "whitespace-normal break-words transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft",
+                          activeId === tab.id
+                            ? "border-app-primary bg-app-primary-soft text-app-primary"
+                            : "border-app-border bg-app-surface text-app-muted hover:border-app-border-strong hover:bg-app-surface-muted hover:text-app-ink"
+                        )}
+                        style={{ maxWidth: Math.min(240, layout.width) }}
+                      >
+                        {tab.name} ({formatInteger(tab.count)})
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MenuItemSelectionPanel({
   query,
   onQueryChange,
@@ -1606,7 +1681,10 @@ function MenuItemSelectionPanel({
   inventoryEnabled,
   currency,
   onQuickAdd,
-  selectedQuantities = {}
+  selectedQuantities = {},
+  fillHeight = false,
+  collapsibleSearch = false,
+  twoRowCategories = false
 }: {
   query: string;
   onQueryChange: (query: string) => void;
@@ -1620,39 +1698,102 @@ function MenuItemSelectionPanel({
   currency?: string;
   onQuickAdd: (item: MenuItem) => void;
   selectedQuantities?: Record<string, number>;
+  fillHeight?: boolean;
+  collapsibleSearch?: boolean;
+  twoRowCategories?: boolean;
 }) {
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchButtonRef = useRef<HTMLButtonElement | null>(null);
+  const restoreSearchFocus = useRef(false);
+  const searchId = useId();
+
+  useEffect(() => {
+    if (searchOpen) {
+      searchInputRef.current?.focus();
+    } else if (restoreSearchFocus.current) {
+      restoreSearchFocus.current = false;
+      searchButtonRef.current?.focus();
+    }
+  }, [searchOpen]);
+
+  function closeSearch() {
+    onQueryChange("");
+    restoreSearchFocus.current = true;
+    setSearchOpen(false);
+  }
+
   return (
-    <div>
-      <label className="flex h-10 items-center gap-2 rounded-app-md border border-app-border bg-app-surface px-3 text-app-muted focus-within:border-app-primary focus-within:ring-4 focus-within:ring-app-primary-soft">
-        <Search className="h-4 w-4 shrink-0" />
-        <input
-          value={query}
-          onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="ابحث عن صنف..."
-          className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-app-ink outline-none placeholder:text-app-muted"
-        />
-      </label>
-      <div className="mt-3 flex gap-2 overflow-x-auto pb-2">
-        {categoryTabs.map((tab) => (
+    <div className={cn(fillHeight && "lg:flex lg:h-full lg:min-h-0 lg:flex-col")}>
+      <div className={cn(collapsibleSearch && "flex shrink-0 flex-wrap items-center gap-2")}>
+        {collapsibleSearch && !searchOpen ? (
           <button
-            key={tab.id}
+            ref={searchButtonRef}
             type="button"
-            onClick={() => onCategoryChange(tab.id)}
-            className={cn(
-              "shrink-0 rounded-app-md border px-3 py-2 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft",
-              activeCategoryId === tab.id
-                ? "border-app-primary bg-app-primary-soft text-app-primary"
-                : "border-app-border bg-app-surface text-app-muted hover:border-app-border-strong hover:bg-app-surface-muted hover:text-app-ink"
-            )}
+            aria-label="البحث عن صنف"
+            aria-expanded={searchOpen}
+            aria-controls={searchId}
+            onClick={() => setSearchOpen(true)}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-app-md border border-app-border bg-app-surface text-app-muted transition-colors hover:text-app-primary focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft"
           >
-            {tab.name} ({formatInteger(tab.count)})
+            <Search className="h-4 w-4" aria-hidden="true" />
           </button>
-        ))}
+        ) : (
+          <div className={cn("flex h-10 min-w-0 shrink-0 items-center gap-2 rounded-app-md border border-app-border bg-app-surface px-3 text-app-muted focus-within:border-app-primary focus-within:ring-4 focus-within:ring-app-primary-soft", collapsibleSearch && "w-full sm:w-60")}>
+            <Search className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <input
+              ref={searchInputRef}
+              id={searchId}
+              aria-label="ابحث عن صنف"
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              placeholder="ابحث عن صنف..."
+              className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-app-ink outline-none placeholder:text-app-muted"
+            />
+            {collapsibleSearch ? (
+              <button
+                type="button"
+                aria-label="إغلاق البحث ومسح النص"
+                aria-expanded={searchOpen}
+                aria-controls={searchId}
+                onClick={closeSearch}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-app-sm hover:text-app-primary focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            ) : null}
+          </div>
+        )}
+        {twoRowCategories ? (
+          <TwoRowCategoryTabs
+            tabs={categoryTabs}
+            activeId={activeCategoryId}
+            onChange={onCategoryChange}
+          />
+        ) : (
+          <div className={cn("flex gap-2 overflow-x-auto pb-2", collapsibleSearch ? "min-w-0 flex-1 basis-0 pt-2" : "mt-3 shrink-0")}>
+            {categoryTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => onCategoryChange(tab.id)}
+                className={cn(
+                  "shrink-0 rounded-app-md border px-3 py-2 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-app-primary-soft",
+                  activeCategoryId === tab.id
+                    ? "border-app-primary bg-app-primary-soft text-app-primary"
+                    : "border-app-border bg-app-surface text-app-muted hover:border-app-border-strong hover:bg-app-surface-muted hover:text-app-ink"
+                )}
+              >
+                {tab.name} ({formatInteger(tab.count)})
+              </button>
+            ))}
+          </div>
+        )}
       </div>
-      <div className="mt-3 max-h-[360px] overflow-y-auto pe-1">
+      <div className={cn("max-h-[360px] overflow-y-auto pe-1", twoRowCategories ? "mt-2" : "mt-3", fillHeight && "lg:min-h-0 lg:max-h-none lg:flex-1")}>
         {allItemsCount ? (
           visibleItems.length ? (
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            <div className={cn("grid gap-2", fillHeight ? "grid-cols-[repeat(auto-fill,minmax(min(100%,150px),1fr))]" : "sm:grid-cols-2 xl:grid-cols-3")}>
               {visibleItems.map((item) => {
                 const hasRecipe = recipes.some((entry) => entry.menuItemId === item.id);
                 const selectedQuantity = selectedQuantities[item.id] ?? 0;
@@ -1661,7 +1802,8 @@ function MenuItemSelectionPanel({
                   <div
                     key={item.id}
                     className={cn(
-                      "grid min-w-0 content-start gap-2 rounded-app-md border bg-app-surface p-2 text-start transition-colors",
+                      "grid min-w-0 content-start rounded-app-md border bg-app-surface text-start transition-colors",
+                      twoRowCategories ? "gap-1 px-2 py-1.5" : "gap-2 p-2",
                       selectedQuantity ? "border-app-primary bg-app-primary-soft" : "border-app-border hover:border-app-border-strong"
                     )}
                   >

@@ -5,7 +5,7 @@ import { useEffect, useId, useRef } from "react";
 import type { ReactNode } from "react";
 import { cn } from "./OperationalPrimitives";
 
-type PopupFormMaxWidth = "sm" | "md" | "lg" | "xl" | "menu" | "wide";
+type PopupFormMaxWidth = "sm" | "md" | "lg" | "xl" | "menu" | "wide" | "checkout";
 
 type PopupFormProps = {
   open: boolean;
@@ -15,6 +15,8 @@ type PopupFormProps = {
   maxWidth?: PopupFormMaxWidth;
   children: ReactNode;
   footer?: ReactNode;
+  headerContent?: ReactNode;
+  fillHeight?: boolean;
 };
 
 const maxWidthClasses: Record<PopupFormMaxWidth, string> = {
@@ -23,6 +25,7 @@ const maxWidthClasses: Record<PopupFormMaxWidth, string> = {
   lg: "max-w-lg",
   xl: "max-w-xl",
   menu: "max-w-[900px]",
+  checkout: "max-w-[1040px]",
   wide: "max-w-[min(1100px,94vw)]"
 };
 
@@ -33,7 +36,9 @@ export function PopupForm({
   description,
   maxWidth = "lg",
   children,
-  footer
+  footer,
+  headerContent,
+  fillHeight = false
 }: PopupFormProps) {
   const titleId = useId();
   const descriptionId = useId();
@@ -88,22 +93,26 @@ export function PopupForm({
         ref={panelRef}
         className={cn(
           "max-h-[calc(100dvh-1.5rem)] w-full overflow-hidden rounded-app-xl border border-app-border bg-app-surface text-app-ink shadow-app-dialog sm:max-h-[calc(100dvh-2rem)]",
-          Boolean(footer) && "flex flex-col",
+          (Boolean(footer) || fillHeight) && "flex flex-col",
+          fillHeight && "lg:h-[calc(100dvh-2rem)]",
           maxWidthClasses[maxWidth]
         )}
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-app-border px-4 py-3">
-          <div>
-            <h2 id={titleId} className="text-app-panel-title font-semibold text-app-ink">
-              {title}
-            </h2>
-            {description ? (
-              <p id={descriptionId} className="mt-1 text-app-helper font-medium text-app-muted">
-                {description}
-              </p>
-            ) : null}
+          <div className={cn(Boolean(headerContent) && "flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2")}>
+            <div>
+              <h2 id={titleId} className="text-app-panel-title font-semibold text-app-ink">
+                {title}
+              </h2>
+              {description ? (
+                <p id={descriptionId} className="mt-1 text-app-helper font-medium text-app-muted">
+                  {description}
+                </p>
+              ) : null}
+            </div>
+            {headerContent}
           </div>
           <button
             type="button"
@@ -114,7 +123,7 @@ export function PopupForm({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className={cn("overflow-y-auto p-4", footer ? "min-h-0 overflow-x-hidden" : "max-h-[calc(100dvh-6.5rem)] sm:max-h-[calc(100dvh-7rem)]")}>{children}</div>
+        <div className={cn("overflow-y-auto p-4", (footer || fillHeight) ? "min-h-0 overflow-x-hidden" : "max-h-[calc(100dvh-6.5rem)] sm:max-h-[calc(100dvh-7rem)]", fillHeight && "max-h-[calc(100dvh-7rem)] lg:flex lg:max-h-none lg:flex-1 lg:flex-col lg:overflow-hidden")}>{children}</div>
         {footer ? <div className="shrink-0 border-t border-app-border bg-app-surface px-4 py-3">{footer}</div> : null}
       </div>
     </div>
