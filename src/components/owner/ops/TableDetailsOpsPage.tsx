@@ -1,4 +1,5 @@
 "use client";
+import { WaiterBatchHistory } from "../WaiterBatchHistory";
 import type { PaymentDraft } from "./PaymentEditor";
 import { CheckoutDialog } from "./CheckoutDialog";
 
@@ -636,6 +637,7 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
 
   return (
     <OpsShell title="تفاصيل الطاولة" eyebrow="الطاولات والطلبات المفتوحة" module="tables" state={state} onRefresh={() => void Promise.all([state.loadRestaurant(), load()])}>
+      <WaiterBatchHistory token={state.token} orderId={order?.id} />
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_10.5rem] xl:[direction:ltr] 2xl:grid-cols-[minmax(0,1fr)_11.5rem]">
         <div className="min-w-0 xl:[direction:rtl]">
           <QuickTablesMobile tables={railTables} currentTableId={activeTableId} orderById={orderById} lastTable={lastTable} lastOrder={lastTableOrder} currency={state.restaurant?.currency} onSelectTable={switchTable} />

@@ -1,4 +1,5 @@
 "use client";
+import { WaiterBatchHistory } from "../WaiterBatchHistory";
 import { PaymentDetails } from "./PaymentDetails";
 import type { PaymentDraft } from "./PaymentEditor";
 import { CheckoutDialog } from "./CheckoutDialog";
@@ -847,6 +848,7 @@ function OrderDetailsDialog({
       maxWidth="wide"
     >
       <div className="grid max-h-[78vh] gap-4 overflow-y-auto pe-1">
+        <WaiterBatchHistory token={token} orderId={order.id} />
         <div className="grid gap-2 rounded-app-lg border border-app-border bg-app-surface-muted p-3 text-sm sm:grid-cols-4">
           <DetailValue label="الطاولة" value={table?.name ?? "بدون طاولة"} />
           <DetailValue label="النوع" value={orderTypeLabel(order.type)} />

@@ -47,12 +47,15 @@ const navItems: NavItem[] = [
   { label: "الإعدادات", href: "/owner/settings", icon: Settings }
 ];
 
+const waiterNav: NavItem = { label: "حسابات النوّادل", href: "/owner/waiters", icon: Utensils, module: "tables" };
+navItems.push(waiterNav);
+
 const navGroups: Array<{ label: string; items: NavItem[] }> = [
   { label: "الرئيسية", items: [navItems[0]] },
   { label: "إدارة المطعم", items: [navItems[1]] },
   { label: "الطلبات والمبيعات", items: [navItems[2], navItems[3], navItems[4]] },
   { label: "المخزون والمحاسبة", items: [navItems[5], navItems[6], navItems[7], navItems[8], navItems[9]] },
-  { label: "الإعدادات", items: [navItems[10]] }
+  { label: "الإعدادات", items: [waiterNav, navItems[10]] }
 ];
 
 function isNavItemActive(pathname: string, href: string) {
@@ -184,7 +187,7 @@ export function OwnerAppShell({
   const pathname = usePathname();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const visibleNav = navItems.filter((item) => !item.module || !modules || modules[item.module]);
+  const visibleNav = navItems.filter((item) => (!item.module || !modules || modules[item.module]) && (item !== waiterNav || !modules || (modules.tables && modules.orders)));
 
   useEffect(() => {
     setSidebarCollapsed(readSidebarPreference());

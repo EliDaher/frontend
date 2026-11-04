@@ -1,4 +1,5 @@
 "use client";
+import { WaiterBatchHistory } from "../WaiterBatchHistory";
 import { businessDay, businessDayStart } from "@/lib/business-day";
 import { PaymentDetails } from "./PaymentDetails";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -654,6 +655,7 @@ function HistoryOrder({
             </p>
             {(source.customerName || order.customerName) ? <p className="break-words">اسم الزبون: {source.customerName || order.customerName}</p> : null}
             {order.notes ? <p>ملاحظات: {order.notes}</p> : null}
+            <WaiterBatchHistory token={token} orderId={order.id} />
             {busy ? <p role="status">جارٍ تحميل الفاتورة…</p> : null}
             {error ? (
               <div role="status" className="text-app-danger">
