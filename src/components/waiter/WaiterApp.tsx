@@ -1,8 +1,12 @@
 "use client";
-import { MessageSquarePlus } from "lucide-react";
+import { LoaderCircle, MessageSquarePlus, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { adminRequest } from "@/lib/api";
 import { ApiError } from "@/lib/api-errors";
+import { tokenExpirationMs } from "@/offline/auth-session";
+import { waiterMenuCache } from "./menu-cache";
+import { PendingBatchSender, type WaiterBatch as Batch } from "./submission";
+import { applyConfirmation, bindSubmissionRecovery, WaiterDataClient, type WaiterMenu, type WaiterState, type WaiterSession, type BatchConfirmation } from "./data-client";
 import { sortTablesByNumber } from "@/lib/table-number";
 import { DraftPanel, type DraftReveal } from "./DraftPanel";
 import {
@@ -12,58 +16,14 @@ import {
   draftToOrderLines,
   restoreDraft,
   type DraftLine,
-  type OrderLine as Line,
 } from "./draft";
-type Batch = {
-  operationId: string;
-  tableId: string;
-  orderId: string;
-  createdAt: string;
-  items: Line[];
-  orderNote?: string;
-  status: "pending" | "sent" | "review";
-  error?: string;
-};
-type Data = {
-  tables: {
-    id: string;
-    name: string;
-    area: string;
-    status: string;
-    currentOrderId: string;
-  }[];
-  orders: {
-    id: string;
-    tableId: string;
-    items: Line[];
-  }[];
-  items: {
-    id: string;
-    name: string;
-    categoryId: string;
-    isAvailable: boolean;
-    order: number;
-  }[];
-  categories: {
-    id: string;
-    name: string;
-    order: number;
-  }[];
-};
-type Session = {
-  token: string;
-  user: {
-    id: string;
-    restaurantId: string;
-    name: string;
-  };
-  restaurantName: string;
-};
+type Session = WaiterSession;
 type Saved = {
   drafts: Record<string, DraftLine[]>;
   orderNotes: Record<string, string>;
   batches: Batch[];
-  data?: Data;
+  data?: WaiterState;
+  lastRefreshAt?: string;
 };
 const sessionKey = (slug: string) => `waiter-session:${slug}`;
 const dataKey = (s: Session) =>
@@ -83,12 +43,28 @@ export function WaiterApp({ slug }: { slug: string }) {
     [draftExpanded, setDraftExpanded] = useState(true),
     [sending, setSending] = useState(false),
     [loginBusy, setLoginBusy] = useState(false);
+  const [menu, setMenu] = useState<WaiterMenu | null>(null);
+  const [menuError, setMenuError] = useState("");
+  const [refreshError, setRefreshError] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const [menuLoading, setMenuLoading] = useState(false);
+  const [online, setOnline] = useState(true);
+  const initializedSession = useRef("");
+  const sessionSlug = useRef(slug);
+  const clientRef = useRef<WaiterDataClient | null>(null);
+  if (!clientRef.current) clientRef.current = new WaiterDataClient(waiterMenuCache, adminRequest, () => {
+    setMenuError("تعذر حفظ المنيو على الجهاز؛ سيبقى متاحاً حتى إغلاق الصفحة.");
+  });
+  const client = clientRef.current;
+  const senderRef = useRef<PendingBatchSender | null>(null);
+  if (!senderRef.current) senderRef.current = new PendingBatchSender((token, body) =>
+    adminRequest<BatchConfirmation>("/api/waiter/batches", token, { method: "POST", body: JSON.stringify(body) }));
+  const sender = senderRef.current;
   const [draftHeight, setDraftHeight] = useState(0);
   const [draftReveal, setDraftReveal] = useState<DraftReveal | null>(null);
   const revealSequence = useRef(0);
   const savedRef = useRef(saved),
-    sessionRef = useRef(session),
-    lock = useRef(false);
+    sessionRef = useRef(session);
   function store(next: Saved) {
     const current = sessionRef.current;
     if (!current) return;
@@ -102,10 +78,28 @@ export function WaiterApp({ slug }: { slug: string }) {
     }
   }
   function activate(s: Session) {
+    if (!s.cacheSessionId) s = { ...s, cacheSessionId: crypto.randomUUID() };
+    if (sessionRef.current && sessionRef.current.cacheSessionId !== s.cacheSessionId)
+      void client.invalidate(sessionRef.current).catch(() => {});
+    if (tokenExpirationMs(s.token) && tokenExpirationMs(s.token) <= Date.now()) {
+      void client.invalidate(s).catch(() => {});
+      localStorage.removeItem(sessionKey(slug));
+      setMessage("انتهت الجلسة. سجّل الدخول؛ مسوداتك ودفعاتك محفوظة.");
+      return;
+    }
+    setMenu(null);
+    setMenuError("");
+    setRefreshError("");
+    setTableId("");
+    setCategory("");
+    setQuery("");
+    setTab("tables");
     let next = empty();
     try {
       next = JSON.parse(localStorage.getItem(dataKey(s)) || "null") || empty();
       next.orderNotes ??= {};
+      // Migrate the old combined bootstrap cache: never reuse menu across sessions.
+      if (next.data) next.data = { tables: next.data.tables, orders: next.data.orders };
       next.drafts = Object.fromEntries(
         Object.entries(next.drafts).map(([id, lines]) => [
           id,
@@ -122,136 +116,132 @@ export function WaiterApp({ slug }: { slug: string }) {
     setSaved(next);
     setSession(s);
   }
-  function logout() {
+  function clearSession(storageSlug: string) {
+    if (sessionRef.current) void client.invalidate(sessionRef.current).catch(() => {});
     sessionRef.current = null;
+    setSending(false);
+    savedRef.current = empty();
+    initializedSession.current = "";
+    setMenu(null);
+    setMenuError("");
+    setRefreshError("");
+    setRefreshing(false);
     setSession(null);
-    localStorage.removeItem(sessionKey(slug));
+    localStorage.removeItem(sessionKey(storageSlug));
     setSaved(empty());
     setTableId("");
   }
+  function logout() { clearSession(slug); }
   useEffect(() => {
+    if (sessionSlug.current !== slug) {
+      clearSession(sessionSlug.current);
+      sessionSlug.current = slug;
+    }
     try {
       const raw = localStorage.getItem(sessionKey(slug));
       if (raw) activate(JSON.parse(raw));
     } catch {}
     setReady(true);
   }, [slug]);
-  async function refresh(s: Session) {
-    const data = await adminRequest<Data>("/api/waiter/bootstrap", s.token);
-    if (sessionRef.current?.token === s.token)
-      store({ ...savedRef.current, data });
+  function isCurrent(s: Session) {
+    return sessionRef.current?.cacheSessionId === s.cacheSessionId;
+  }
+  function sessionFailure(s: Session, error: unknown) {
+    if (!isCurrent(s)) return;
+    if (error instanceof ApiError && error.status === 401) {
+      logout();
+      setMessage("انتهت الجلسة أو عُطل الحساب. سجّل الدخول؛ الدفعات محفوظة.");
+    }
+  }
+  async function loadMenu(s: Session) {
+    setMenuLoading(true);
+    setMenuError("");
+    try {
+      const result = await client.menu(s);
+      if (isCurrent(s)) setMenu(result);
+    } catch (error) {
+      if (isCurrent(s)) setMenuError("تعذر تحميل المنيو. تحقق من الاتصال ثم أعد المحاولة.");
+      sessionFailure(s, error);
+    } finally { if (isCurrent(s)) setMenuLoading(false); }
+  }
+  async function refreshTables(s: Session) {
+    if (sender.busy(s)) return;
+    setRefreshing(true);
+    setRefreshError("");
+    try {
+      const state = await client.refresh(s);
+      if (isCurrent(s)) store({ ...savedRef.current, data: state, lastRefreshAt: new Date().toISOString() });
+    } catch (error) {
+      if (isCurrent(s)) setRefreshError("تعذر تحديث الطاولات. البيانات السابقة محفوظة؛ تحقق من الاتصال وأعد المحاولة.");
+      sessionFailure(s, error);
+    } finally { if (isCurrent(s)) setRefreshing(false); }
   }
   async function sync() {
     const s = sessionRef.current;
-    if (!s || lock.current || !navigator.onLine) return;
-    lock.current = true;
-    setSending(true);
-    try {
-      for (const batch of savedRef.current.batches.filter(
-        (b) => b.status === "pending",
-      )) {
-        if (sessionRef.current?.token !== s.token) break;
-        try {
-          await adminRequest("/api/waiter/batches", s.token, {
-            method: "POST",
-            body: JSON.stringify({
-              operationId: batch.operationId,
-              tableId: batch.tableId,
-              orderId: batch.orderId,
-              createdAt: batch.createdAt,
-              items: batch.items.map(({ menuItemId, quantity, notes }) => ({
-                menuItemId,
-                quantity,
-                notes,
-              })),
-              ...(batch.orderNote !== undefined
-                ? { orderNote: batch.orderNote }
-                : {}),
-            }),
-          });
-          if (sessionRef.current?.token !== s.token) break;
-          store({
-            ...savedRef.current,
-            batches: savedRef.current.batches.map((b) =>
-              b.operationId === batch.operationId
-                ? { ...b, status: "sent", error: undefined }
-                : b,
-            ),
-          });
-        } catch (e) {
-          if (sessionRef.current?.token !== s.token) break;
-          if (e instanceof ApiError && e.status === 401) {
-            setMessage(
-              "انتهت الجلسة أو عُطل الحساب. سجل الدخول مجدداً؛ الدفعات محفوظة.",
-            );
-            logout();
-            break;
-          }
-          if (
-            e instanceof ApiError &&
-            e.status >= 400 &&
-            e.status < 500 &&
-            e.status !== 429
-          ) {
-            store({
-              ...savedRef.current,
-              batches: savedRef.current.batches.map((b) =>
-                b.operationId === batch.operationId
-                  ? { ...b, status: "review", error: e.message }
-                  : b,
-              ),
-            });
-          } else {
-            setMessage(
-              "الدفعات محفوظة؛ سنعيد الإرسال تلقائياً عند توفر الاتصال.",
-            );
-            break;
-          }
-        }
-      }
-      if (sessionRef.current?.token === s.token) await refresh(s);
-      if (
-        sessionRef.current?.token === s.token &&
-        !savedRef.current.batches.some((b) => b.status === "pending")
-      )
-        setMessage(
-          savedRef.current.batches.some((b) => b.status === "review")
-            ? "هناك دفعة تحتاج مراجعة؛ تحقق منها أدناه."
-            : "",
-        );
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) {
-        setMessage("انتهت الجلسة أو عُطل الحساب");
+    if (!s) return;
+    await sender.send(s, {
+      pending: () => savedRef.current.batches,
+      current: () => isCurrent(s),
+      online: () => navigator.onLine,
+      waitForRefresh: () => client.waitForRefresh(s),
+      sending: setSending,
+      confirmed: (batch, result) => {
+        store({
+          ...savedRef.current,
+          data: applyConfirmation(savedRef.current.data || { tables: [], orders: [] }, batch.tableId, result),
+          batches: savedRef.current.batches.map(b => b.operationId === batch.operationId ? { ...b, status: "sent", error: undefined } : b),
+        });
+        setMessage("تم إرسال الدفعة وتأكيدها من الخادم");
+      },
+      review: (batch, error) => {
+        store({ ...savedRef.current, batches: savedRef.current.batches.map(b => b.operationId === batch.operationId ? { ...b, status: "review", error } : b) });
+        setMessage("هناك دفعة تحتاج مراجعة؛ تحقق منها أدناه.");
+      },
+      failed: setMessage,
+      expired: () => {
         logout();
-      }
-    } finally {
-      lock.current = false;
-      setSending(false);
-    }
+        setMessage("انتهت الجلسة أو عُطل الحساب. سجّل الدخول مجدداً؛ الدفعات محفوظة.");
+      },
+    });
   }
   useEffect(() => {
+    setOnline(navigator.onLine);
     if (!session) return;
-    void sync();
-    const resume = () => void sync();
-    window.addEventListener("online", resume);
-    window.addEventListener("focus", resume);
-    const timer = setInterval(resume, 15000);
+    const s = session;
+    if (initializedSession.current !== s.cacheSessionId) {
+      initializedSession.current = s.cacheSessionId;
+      void waiterMenuCache.removeOtherSessions(s).catch(() => {});
+      void loadMenu(s);
+      void refreshTables(s);
+      void sync(); // Restored pending batches only; this never loads data.
+    }
+    const disconnect = () => setOnline(false);
+    const reconnect = () => { setOnline(true); void sync(); };
+    const unbind = bindSubmissionRecovery(window, reconnect);
+    window.addEventListener("offline", disconnect);
+    const expiresAt = tokenExpirationMs(s.token);
+    const expiry = expiresAt ? window.setTimeout(() => {
+      if (isCurrent(s)) {
+        logout();
+        setMessage("انتهت الجلسة. سجّل الدخول؛ مسوداتك ودفعاتك محفوظة.");
+      }
+    }, Math.max(0, expiresAt - Date.now())) : undefined;
     return () => {
-      clearInterval(timer);
-      window.removeEventListener("online", resume);
-      window.removeEventListener("focus", resume);
+      unbind();
+      window.removeEventListener("offline", disconnect);
+      if (expiry !== undefined) window.clearTimeout(expiry);
     };
-  }, [session?.token]);
+  }, [session?.cacheSessionId]);
   async function login(e: React.FormEvent) {
     e.preventDefault();
     setLoginBusy(true);
     setMessage("");
     try {
       activate(
-        await adminRequest<Session>("/api/waiter/login", undefined, {
+        { ...await adminRequest<Omit<Session, "cacheSessionId">>("/api/waiter/login", undefined, {
           method: "POST",
           body: JSON.stringify({ slug, username, password }),
-        }),
+        }), cacheSessionId: crypto.randomUUID() },
       );
       setPassword("");
     } catch (e) {
@@ -260,7 +250,7 @@ export function WaiterApp({ slug }: { slug: string }) {
       setLoginBusy(false);
     }
   }
-  const data = saved.data,
+  const data = { tables: saved.data?.tables || [], orders: saved.data?.orders || [], items: menu?.items || [], categories: menu?.categories || [] },
     table = data?.tables.find((t) => t.id === tableId),
     order = data?.orders.find((o) => o.id === table?.currentOrderId),
     draft = saved.drafts[tableId] || [];
@@ -461,7 +451,23 @@ export function WaiterApp({ slug }: { slug: string }) {
               onChange={(e) => setQuery(e.target.value)}
               className="min-h-12 w-full rounded-xl border p-3"
             />
-            {!data && <p>اتصل بالإنترنت لتحميل المنيو والطاولات لأول مرة.</p>}
+            <section className="space-y-2 rounded-xl border border-app-border bg-app-surface p-3">
+              <button type="button" className={`${button} flex w-full items-center justify-center gap-2`}
+                disabled={refreshing || sending} aria-busy={refreshing}
+                onClick={() => void refreshTables(session)}>
+                {refreshing ? <LoaderCircle aria-hidden="true" size={18} className="animate-spin" /> : <RefreshCw aria-hidden="true" size={18} />}
+                {refreshing ? "جارٍ تحديث الطاولات…" : "تحديث الطاولات"}
+              </button>
+              <p className="text-sm text-app-muted">
+                {saved.lastRefreshAt ? `آخر تحديث للطاولات: ${new Date(saved.lastRefreshAt).toLocaleString("en-GB")}` : "لم يتم تحديث الطاولات بعد"}
+              </p>
+              <p className="text-sm text-app-muted">تُحدّث حالة الطاولات يدوياً. اضغط التحديث للاطلاع على آخر التغييرات.</p>
+              {!online && <p role="status">أنت غير متصل. المسودات والدفعات محفوظة على الجهاز.</p>}
+              {refreshError && <p role="alert">{refreshError}</p>}
+              {menuLoading && <p role="status">جارٍ تحميل المنيو…</p>}
+              {menuError && <p role="alert">{menuError}</p>}
+              {!menu && !menuLoading && <button className={button} onClick={() => void loadMenu(session)}>إعادة محاولة تحميل المنيو</button>}
+            </section>
             {tab === "tables" ? (
               <div className="grid grid-cols-2 gap-3">
                 {sortTablesByNumber(data?.tables || [])
@@ -581,6 +587,11 @@ export function WaiterApp({ slug }: { slug: string }) {
             {saved.batches.length > 0 && (
               <section className="space-y-2">
                 <h2 className="font-bold">الطلبات</h2>
+                {saved.batches.some(b => b.status === "pending") && (
+                  <button type="button" disabled={sending} className={button} onClick={() => void sync()}>
+                    {sending ? "جارٍ الإرسال…" : "إعادة إرسال الدفعات المعلّقة"}
+                  </button>
+                )}
                 {saved.batches
                   .slice()
                   .reverse()
@@ -600,7 +611,7 @@ export function WaiterApp({ slug }: { slug: string }) {
                             ? "تحتاج مراجعة"
                             : sending
                               ? "جارٍ الإرسال"
-                              : "بانتظار الاتصال"}
+                              : "بانتظار الإرسال"}
                       </p>
                       <p className="text-sm">
                         {b.items
