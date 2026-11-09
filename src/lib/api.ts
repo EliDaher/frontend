@@ -4,8 +4,8 @@ import { ApiError } from "./api-errors";
 
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ??
-  // "https://restaurantsserver.onrender.com";
-  "http://localhost:4000";
+  "https://restaurantsserver.onrender.com";
+  // "http://localhost:4000";
 
 const requestTimeoutMs = 20_000;
 const backgroundRequestTimeoutMs = 7_000;
