@@ -2,9 +2,10 @@ import "fake-indexeddb/auto";
 import assert from "node:assert/strict";
 import { resolveCashMovements, summarizeCashRegisters } from "../src/lib/cash-balances.ts";
 import { after, beforeEach, describe, it, mock } from "node:test";
-mock.module("../src/offline/sync-engine.ts", { namedExports: { startSync: async () => undefined } });
+mock.module("../src/offline/sync-engine.ts", { namedExports: { startSync: async () => undefined, tryIncrementalRefresh: async () => false } });
 let serverPush, serverPull;
 mock.module("../src/lib/api.ts", { namedExports: {
+  adminRequest: async () => ({ enabled: false, schemaVersion: 1 }),
   adminBackgroundRequest: async () => { throw new Error("offline"); },
   syncPush: async (_token, device, operations) => serverPush("r", { id: "owner", email: "test@example.test", role: "OWNER", permissions: [] }, device, operations),
   syncPull: async (_token, cursor) => serverPull("r", cursor)

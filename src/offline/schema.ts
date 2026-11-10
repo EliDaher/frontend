@@ -111,6 +111,9 @@ export type SyncMetadata = {
   syncInProgress?: boolean;
   syncLeaseUntil?: string;
   syncLeaseOwnerId?: string;
+  quotaRetryAt?: number;
+  quotaRetryCount?: number;
+  bootstrap?: { schemaVersion: number; baselineCursor: number; entityIndex: number; after?: string; generation: string; complete: boolean };
 };
 
 export type SyncConflict = {

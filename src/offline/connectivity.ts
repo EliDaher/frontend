@@ -10,7 +10,7 @@ export type ConnectivityState = {
 
 const healthTimeoutMs = 5_000;
 
-export async function checkApiReachable(token?: string): Promise<ConnectivityState> {
+async function probeApi(token?: string): Promise<ConnectivityState> {
   const browserOnline = typeof navigator === "undefined" ? true : navigator.onLine;
   const checkedAt = new Date().toISOString();
   if (!browserOnline) {
@@ -68,4 +68,13 @@ export async function checkApiReachable(token?: string): Promise<ConnectivitySta
   } finally {
     globalThis.clearTimeout(timeout);
   }
+}
+
+let probe: { token?: string; online: boolean; expires: number; promise: Promise<ConnectivityState> } | undefined;
+export function checkApiReachable(token?: string): Promise<ConnectivityState> {
+  const online = typeof navigator === "undefined" || navigator.onLine;
+  if (probe && probe.token === token && probe.online === online && probe.expires > Date.now()) return probe.promise;
+  const promise = probeApi(token);
+  probe = { token, online, expires: Date.now() + 15_000, promise };
+  return promise;
 }

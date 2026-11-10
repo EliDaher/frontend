@@ -1,3 +1,4 @@
+import { tryIncrementalRefresh } from "../sync-engine";
 import { adminBackgroundRequest } from "@/lib/api";
 import type { Category, MenuItem } from "@/types/menu";
 import type { CashRegister, RecipeIngredient } from "@/types/ops";
@@ -28,6 +29,7 @@ export function refreshReferenceData(context: OfflineContext, modules?: { invent
 }
 
 async function pullReferenceData(context: OfflineContext, modules?: { inventory?: boolean; accounting?: boolean }) {
+  if (await tryIncrementalRefresh(context)) return;
   const now = new Date().toISOString();
   const deviceId = await getDeviceId();
 

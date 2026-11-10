@@ -1,3 +1,4 @@
+import { tryIncrementalRefresh } from "../sync-engine";
 import { adminBackgroundRequest } from "@/lib/api";
 import type { Invoice, Supplier } from "@/types/ops";
 import { offlineDb } from "../db";
@@ -47,6 +48,7 @@ export async function refreshInvoiceSuppliers(context: OfflineContext) {
 
 async function pullInvoiceSuppliers(context: OfflineContext) {
   try {
+    if (await tryIncrementalRefresh(context)) return listLocalSuppliers(context.tenantId);
     const suppliers = await adminBackgroundRequest<Supplier[]>("/api/owner/ops/suppliers", context.token);
     const now = new Date().toISOString();
     const deviceId = await getDeviceId();
@@ -74,6 +76,7 @@ export async function listLocalSuppliers(tenantId: string) {
 }
 
 async function pullInvoices(context: OfflineContext) {
+  if (await tryIncrementalRefresh(context)) return listLocalInvoices(context.tenantId);
   const remoteInvoices = await adminBackgroundRequest<Invoice[]>("/api/owner/ops/invoices", context.token);
   const now = new Date().toISOString();
   const deviceId = await getDeviceId();

@@ -1,5 +1,5 @@
 import { MenuTemplateRenderer } from "@/components/menu/MenuTemplateRenderer";
-import { getMenu, getRestaurant } from "@/lib/api";
+import { getRestaurantMenu } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +11,7 @@ export default async function RestaurantMenuPage({ params }: PageProps) {
   const { restaurantSlug } = await params;
 
   try {
-    const [restaurant, menu] = await Promise.all([getRestaurant(restaurantSlug), getMenu(restaurantSlug)]);
+    const { restaurant, menu } = await getRestaurantMenu(restaurantSlug);
     return <MenuTemplateRenderer restaurant={restaurant} categories={menu.categories} items={menu.items} />;
   } catch {
     return (

@@ -1,3 +1,4 @@
+import { tryIncrementalRefresh } from "../sync-engine";
 import { normalizeSettlement, type PaymentPart, type SettlementMode } from "@/lib/payments";
 import { adminBackgroundRequest } from "@/lib/api";
 import type { CashMovement, Invoice, JournalEntry, OperationalPayment, OpsOrder, OpsOrderLine, OpsTable, PaymentMethod } from "@/types/ops";
@@ -68,6 +69,7 @@ export async function refreshOrders(context: OfflineContext, strict = false) {
 
 async function pullOrders(context: OfflineContext, strict = false) {
   try {
+    if (await tryIncrementalRefresh(context)) return listLocalOrders(context.tenantId);
     const remoteOrders = await adminBackgroundRequest<OpsOrder[]>("/api/owner/ops/orders", context.token);
     const now = new Date().toISOString();
     const deviceId = await getDeviceId();

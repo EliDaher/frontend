@@ -1,3 +1,4 @@
+import { tryIncrementalRefresh } from "../sync-engine";
 import { adminBackgroundRequest } from "@/lib/api";
 import type { MenuItem } from "@/types/menu";
 import type { InventoryItem, InventoryTransaction, RecipeIngredient } from "@/types/ops";
@@ -45,6 +46,7 @@ export async function getPendingLocalInventoryEffects(tenantId: string) {
 }
 
 async function pullInventory(context: OfflineContext) {
+  if (await tryIncrementalRefresh(context)) return;
   const now = new Date().toISOString();
   const deviceId = await getDeviceId();
   const [items, transactions, recipes, menuItems] = await Promise.all([

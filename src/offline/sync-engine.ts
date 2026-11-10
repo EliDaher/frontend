@@ -1,3 +1,5 @@
+import { adminRequest } from "@/lib/api";
+import { shouldProtectHydratedRecord } from "./hydration";
 import { syncPull, syncPush } from "@/lib/api";
 import { isAuthError } from "@/lib/api-errors";
 import { inspectToken } from "./auth-session";
@@ -5,12 +7,13 @@ import { localConflictPayload } from "./conflict-payload";
 import { offlineDb, tenantMetadataKey } from "./db";
 import { getDeviceId } from "./device";
 import { nextRetryTime, notifySyncStatusChanged, pendingOperations, recoverStaleSyncingOperations } from "./outbox";
-import type { PullChange, PushOperation, PushResult, SyncQueueItem, SyncEntityType } from "./schema";
+import type { PullChange, PushOperation, PushResult, SyncQueueItem, SyncEntityType, SyncMetadata } from "./schema";
 
 const syncLeaseMs = 60_000;
 const maxPushBatches = 10;
 const channelName = "restaurant-ops-sync";
-let running = false;
+const running = new Set<string>();
+const cycles = new Map<string, Promise<void>>();
 const requestedWhileRunning = new Set<string>();
 let channel: BroadcastChannel | null = null;
 
@@ -22,9 +25,16 @@ function getChannel() {
   return channel;
 }
 
-export async function startSync(tenantId: string, token: string) {
+export function startSync(tenantId: string, token: string): Promise<void> {
+  const existing = cycles.get(tenantId);
+  if (existing) { requestedWhileRunning.add(tenantId); return existing; }
+  const cycle = runSync(tenantId, token).finally(() => { if (cycles.get(tenantId) === cycle) cycles.delete(tenantId); });
+  cycles.set(tenantId, cycle);
+  return cycle;
+}
+async function runSync(tenantId: string, token: string) {
   if (!tenantId || !token) return;
-  if (running) {
+  if (running.has(tenantId)) {
     requestedWhileRunning.add(tenantId);
     return;
   }
@@ -40,7 +50,9 @@ export async function startSync(tenantId: string, token: string) {
     notifySyncStatusChanged();
     return;
   }
-  running = true;
+  const retryMetadata = await offlineDb.syncMetadata.get(tenantMetadataKey(tenantId));
+  if ((retryMetadata?.quotaRetryAt ?? 0) > Date.now()) { scheduleQuotaRetry(tenantId, token, retryMetadata!.quotaRetryAt!); return; }
+  running.add(tenantId);
   let leaseAcquired = false;
   const startedAt = performanceNow();
   const leaseOwnerId = await getDeviceId();
@@ -58,6 +70,7 @@ export async function startSync(tenantId: string, token: string) {
     getChannel()?.postMessage({ type: "sync-started", tenantId });
     notifySyncStatusChanged();
 
+    await ensureBootstrap(tenantId, token, leaseOwnerId);
     for (let index = 0; index < maxPushBatches; index += 1) {
       await refreshSyncLease(tenantId, leaseOwnerId);
       const pushed = await pushPendingOperations(tenantId, token);
@@ -68,6 +81,10 @@ export async function startSync(tenantId: string, token: string) {
     await refreshSyncLease(tenantId, leaseOwnerId);
     try {
       pulledChanges = await pullServerChanges(tenantId, token);
+      await offlineDb.syncMetadata.update(tenantMetadataKey(tenantId), { quotaRetryAt: undefined, quotaRetryCount: 0 });
+      const retry = quotaTimers.get(tenantId);
+      if (retry) clearTimeout(retry);
+      quotaTimers.delete(tenantId);
     } catch (error) {
       if (isAuthError(error)) {
         await pauseAuthenticationFailures(tenantId, error instanceof Error ? error.message : "Invalid or expired token");
@@ -75,22 +92,25 @@ export async function startSync(tenantId: string, token: string) {
       }
       throw error;
     }
+  } catch (error) {
+    if (isQuotaFailure(error)) await deferQuota(tenantId, token);
+    throw error;
   } finally {
     if (leaseAcquired) await releaseSyncLease(tenantId, leaseOwnerId);
-    running = false;
+    running.delete(tenantId);
     getChannel()?.postMessage({ type: "sync-finished", tenantId });
     logSyncCycle(startedAt, pushedOperations, pulledChanges);
     notifySyncStatusChanged();
-    await runRequestedFollowUpSync(tenantId, token);
+    // Defer until the single-flight promise has been released.
+    if (requestedWhileRunning.delete(tenantId)) setTimeout(() => { void runRequestedFollowUpSync(tenantId, token).catch(() => {}); }, 0);
   }
 }
 
 async function runRequestedFollowUpSync(tenantId: string, token: string) {
-  if (!requestedWhileRunning.delete(tenantId)) return;
   if (inspectToken(token).expired) return;
   const dueOperations = await pendingOperations(tenantId, 1);
   if (dueOperations.length) {
-    void startSync(tenantId, token);
+    await startSync(tenantId, token);
   }
 }
 
@@ -106,6 +126,7 @@ async function acquireSyncLease(tenantId: string, leaseOwnerId: string) {
     }
 
     await offlineDb.syncMetadata.put({
+      ...current,
       key,
       tenantId,
       lastPullCursor: current?.lastPullCursor ?? 0,
@@ -168,7 +189,9 @@ async function pushPendingOperations(tenantId: string, token: string) {
 
   try {
     const response = await syncPush(token, deviceId, requestOperations);
+    if (response.results.some(r => r.error?.code === "firestore_resource_exhausted")) await deferQuota(tenantId, token);
     await applyPushResults(operations, response.results);
+    if (response.results.some(r => r.error?.code === "firestore_resource_exhausted")) return -1;
   } catch (error) {
     if (isAuthError(error)) {
       await offlineDb.syncQueue.bulkPut(operations.map((operation) => markAuthenticationFailure(operation, error instanceof Error ? error.message : "Invalid or expired token")));
@@ -178,12 +201,15 @@ async function pushPendingOperations(tenantId: string, token: string) {
       notifySyncStatusChanged();
       return -1;
     }
+    if (isQuotaFailure(error)) await deferQuota(tenantId, token);
     const message = error instanceof Error ? error.message : "Sync request failed";
-    await offlineDb.syncQueue.bulkPut(operations.map((operation) => markRetryableFailure(operation, message)));
-    await markCompletionOperationsStatus(operations, "pending", "network_error", message);
-    await markExpenseOperationsStatus(operations, "pending", "network_error", message);
-    await markCashMovementOperationsStatus(operations, "pending", "network_error", message);
+    const failureCode = isQuotaFailure(error) ? "firestore_resource_exhausted" : "network_error";
+    await offlineDb.syncQueue.bulkPut(operations.map((operation) => markRetryableFailure(operation, message, failureCode)));
+    await markCompletionOperationsStatus(operations, "pending", failureCode, message);
+    await markExpenseOperationsStatus(operations, "pending", failureCode, message);
+    await markCashMovementOperationsStatus(operations, "pending", failureCode, message);
     notifySyncStatusChanged();
+    if (isQuotaFailure(error)) return -1;
   }
 
   return operations.length;
@@ -460,10 +486,25 @@ async function markOrderCompletionArtifactsSynced(orderId: string, result: PushR
 }
 
 async function pullServerChanges(tenantId: string, token: string) {
+  let count = 0;
+  let previous = -1;
+  let throughCursor: number | undefined;
+  while (true) {
+    const before = (await offlineDb.syncMetadata.get(tenantMetadataKey(tenantId)))?.lastPullCursor ?? 0;
+    if (before === previous) throw new Error("Sync cursor did not advance");
+    previous = before;
+    const page = await pullServerChangesPage(tenantId, token, throughCursor);
+    throughCursor = page.throughCursor;
+    count += page.count;
+    if (!page.more) return count;
+    await refreshSyncLease(tenantId, await getDeviceId());
+  }
+}
+async function pullServerChangesPage(tenantId: string, token: string, throughCursor?: number) {
   const key = tenantMetadataKey(tenantId);
   const metadata = await offlineDb.syncMetadata.get(key);
   const cursor = metadata?.lastPullCursor ?? 0;
-  const response = await syncPull(token, cursor);
+  const response = await syncPull(token, cursor, throughCursor);
 
   await offlineDb.transaction("rw", [
     offlineDb.opsTables,
@@ -477,13 +518,16 @@ async function pullServerChanges(tenantId: string, token: string) {
     offlineDb.expenses,
     offlineDb.cashMovements,
     offlineDb.journalEntries,
-    offlineDb.syncMetadata
+    offlineDb.syncMetadata,
+    offlineDb.inventoryItems, offlineDb.inventoryTransactions, offlineDb.suppliers,
+    offlineDb.accounts, offlineDb.syncQueue, offlineDb.syncConflicts
   ],
     async () => {
       for (const change of response.changes) {
         await applyPullChange(tenantId, change);
       }
       await offlineDb.syncMetadata.put({
+        ...(await offlineDb.syncMetadata.get(key)),
         key,
         tenantId,
         lastPullCursor: response.cursor,
@@ -491,12 +535,14 @@ async function pullServerChanges(tenantId: string, token: string) {
       });
     }
   );
-  return response.changes.length;
+  return { throughCursor: response.throughCursor, count: response.changes.length, more: response.hasMore ?? response.changes.length === 500 };
 }
 
 async function applyPullChange(tenantId: string, change: PullChange) {
   const table = tableForEntity(change.entityType);
-  if (!table) return;
+  if (!table) throw new Error(`Unsupported sync entity: ${change.entityType}`);
+  const record = await table.get(change.entityId);
+  if (await shouldProtectHydratedRecord({ tenantId, entityType: change.entityType, entityId: change.entityId, local: record })) return;
 
   if (change.action === "delete") {
     const current = await table.get(change.entityId) as { syncStatus?: string } | undefined;
@@ -511,10 +557,11 @@ async function applyPullChange(tenantId: string, change: PullChange) {
     return;
   }
 
-  if (!change.data) return;
+  if (!change.data) throw new Error("Missing sync document");
   if (!changeBelongsToTenant(change, tenantId)) return;
   const current = await table.get(change.entityId) as { syncStatus?: string } | undefined;
   if (current?.syncStatus === "pending" || current?.syncStatus === "syncing") return;
+  if (current && Number((current as { version?: number }).version ?? 0) > change.version) return;
   const reconciliation = reconciliationPatch(change, current as Record<string, unknown> | undefined);
   await table.put({
     ...(change.data as Record<string, unknown>),
@@ -692,6 +739,10 @@ function reconciliationPatch(change: PullChange, current: Record<string, unknown
 
 function tableForEntity(entityType: PullChange["entityType"]) {
   switch (entityType) {
+    case "inventoryItem": return offlineDb.inventoryItems;
+    case "inventoryTransaction": return offlineDb.inventoryTransactions;
+    case "supplier": return offlineDb.suppliers;
+    case "account": return offlineDb.accounts;
     case "table":
       return offlineDb.opsTables;
     case "order":
@@ -719,7 +770,7 @@ function tableForEntity(entityType: PullChange["entityType"]) {
   }
 }
 
-function markRetryableFailure(operation: SyncQueueItem, message: string): SyncQueueItem {
+function markRetryableFailure(operation: SyncQueueItem, message: string, code = "network_error"): SyncQueueItem {
   const retryCount = operation.retryCount + 1;
   return {
     ...operation,
@@ -727,7 +778,7 @@ function markRetryableFailure(operation: SyncQueueItem, message: string): SyncQu
     retryCount,
     nextAttemptAt: nextRetryTime(retryCount),
     error: {
-      code: "network_error",
+      code,
       message,
       retryable: true
     },
@@ -818,4 +869,97 @@ async function reconcileFinancialArtifactStatuses(updated: SyncQueueItem[]) {
     const status = op.status === "synced" ? "synced" : op.status === "conflict" ? "conflict" : op.status === "failed" ? "failed" : "pending";
     await table.put({ ...record, syncStatus: status, syncErrorCode: op.error?.code, syncErrorMessage: op.error?.message } as never);
   }
+}
+
+const bootstrapEntities: SyncEntityType[] = ["table", "order", "inventoryItem", "inventoryTransaction", "recipeIngredient", "supplier", "invoice", "payment", "expense", "cashRegister", "cashMovement", "account", "journalEntry", "category", "menuItem"];
+const configurations = new Map<string, { until: number; promise: Promise<{ enabled: boolean; schemaVersion: number }> }>();
+function incrementalConfig(tenantId: string, token: string) {
+  const key = `${tenantId}:${token}`;
+  const current = configurations.get(key);
+  if (current && current.until > Date.now()) return current.promise;
+  const promise = adminRequest<{ enabled: boolean; schemaVersion: number }>("/api/owner/sync/config", token);
+  configurations.set(key, { until: Date.now() + 15_000, promise });
+  while (configurations.size > 20) configurations.delete(configurations.keys().next().value!);
+  promise.catch(() => { if (configurations.get(key)?.promise === promise) configurations.delete(key); });
+  return promise;
+}
+export async function tryIncrementalRefresh(context: { tenantId: string; token: string }) {
+  const config = await incrementalConfig(context.tenantId, context.token);
+  if (!config.enabled) return false;
+  if (config.schemaVersion !== 1) throw new Error("Unsupported sync schema");
+  await startSync(context.tenantId, context.token);
+  const metadata = await offlineDb.syncMetadata.get(tenantMetadataKey(context.tenantId));
+  if (!metadata?.bootstrap?.complete) throw new Error("Initial synchronization has not completed");
+  return true;
+}
+async function ensureBootstrap(tenantId: string, token: string, owner: string) {
+  const config = await incrementalConfig(tenantId, token);
+  if (!config.enabled) return;
+  if (config.schemaVersion !== 1) throw new Error("Unsupported sync schema");
+  const key = tenantMetadataKey(tenantId);
+  let metadata = await offlineDb.syncMetadata.get(key);
+  let state: NonNullable<SyncMetadata["bootstrap"]> = metadata?.bootstrap ?? { schemaVersion: 0, baselineCursor: -1, entityIndex: 0, generation: "", complete: false };
+  if (state?.schemaVersion === 1 && state.complete) return;
+  if (!state || state.schemaVersion !== 1) {
+    state = { schemaVersion: 1, baselineCursor: -1, entityIndex: 0, generation: crypto.randomUUID(), complete: false };
+    await offlineDb.syncMetadata.put({ ...metadata, key, tenantId, lastPullCursor: metadata?.lastPullCursor ?? 0, bootstrap: state });
+  }
+  while (state.entityIndex < bootstrapEntities.length) {
+    const entity = bootstrapEntities[state.entityIndex];
+    const table = tableForEntity(entity)!;
+    const page = await adminRequest<{ records: Array<Record<string, unknown> & { id: string }>; baselineCursor: number; after: string | null; hasMore: boolean }>(`/api/owner/sync/snapshot?entity=${entity}${state.after ? `&after=${encodeURIComponent(state.after)}` : ""}`, token);
+    if (page.hasMore && (!page.after || page.after === state.after)) throw new Error("Snapshot cursor did not advance");
+    const next: NonNullable<SyncMetadata["bootstrap"]> = { ...state, baselineCursor: state.baselineCursor < 0 ? page.baselineCursor : state.baselineCursor };
+    await offlineDb.transaction("rw", [table, offlineDb.syncMetadata, offlineDb.syncQueue, offlineDb.syncConflicts], async () => {
+      for (const record of page.records) {
+        const current = await table.get(record.id);
+        if (await shouldProtectHydratedRecord({ tenantId, entityType: entity, entityId: record.id, local: current })) continue;
+        await table.put({ ...record, restaurantId: tenantId, syncStatus: "synced", version: Number(record.version) || Date.parse(String(record.updatedAt ?? record.createdAt ?? "")) || 0,
+          bootstrapGeneration: next.generation, lastSyncedAt: new Date().toISOString() } as never);
+      }
+      if (!page.hasMore) {
+        const existing = await table.where("restaurantId").equals(tenantId).toArray();
+        for (const record of existing) {
+          if ((record as unknown as { bootstrapGeneration?: string }).bootstrapGeneration === next.generation) continue;
+          if (await shouldProtectHydratedRecord({ tenantId, entityType: entity, entityId: record.id, local: record })) continue;
+          await table.put({ ...record, deletedAt: new Date().toISOString() } as never);
+        }
+        next.entityIndex++; next.after = undefined;
+      } else next.after = page.after!;
+      const latest = await offlineDb.syncMetadata.get(key);
+      await offlineDb.syncMetadata.put({ ...latest, key, tenantId, lastPullCursor: latest?.lastPullCursor ?? 0, bootstrap: next });
+    });
+    state = next;
+    await refreshSyncLease(tenantId, owner);
+  }
+  // Only advance past old journal history after ALL collections are complete.
+  metadata = await offlineDb.syncMetadata.get(key);
+  await offlineDb.syncMetadata.put({ ...metadata, key, tenantId, lastPullCursor: state.baselineCursor, bootstrap: state });
+  await pullServerChanges(tenantId, token);
+  metadata = await offlineDb.syncMetadata.get(key);
+  await offlineDb.syncMetadata.put({ ...metadata!, bootstrap: { ...state, complete: true } });
+}
+
+function isQuotaFailure(error: unknown) { return typeof error === "object" && error !== null && "code" in error && error.code === "firestore_resource_exhausted"; }
+async function deferQuota(tenantId: string, token: string) {
+  const key = tenantMetadataKey(tenantId);
+  await offlineDb.transaction("rw", offlineDb.syncMetadata, async () => {
+    const metadata = await offlineDb.syncMetadata.get(key);
+    const quotaRetryCount = (metadata?.quotaRetryCount ?? 0) + 1;
+    await offlineDb.syncMetadata.put({ ...metadata, key, tenantId, lastPullCursor: metadata?.lastPullCursor ?? 0,
+      quotaRetryCount, quotaRetryAt: Date.parse(nextRetryTime(quotaRetryCount)) });
+  });
+  const deadline = (await offlineDb.syncMetadata.get(key))!.quotaRetryAt!;
+  scheduleQuotaRetry(tenantId, token, deadline);
+}
+const quotaTimers = new Map<string, ReturnType<typeof setTimeout>>();
+function scheduleQuotaRetry(tenantId: string, token: string, deadline: number) {
+  const previous = quotaTimers.get(tenantId);
+  if (previous) clearTimeout(previous);
+  const timer = setTimeout(() => {
+    quotaTimers.delete(tenantId);
+    void startSync(tenantId, token).catch(() => {});
+  }, Math.max(0, deadline - Date.now()));
+  (timer as unknown as { unref?: () => void }).unref?.();
+  quotaTimers.set(tenantId, timer);
 }

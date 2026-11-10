@@ -4,8 +4,8 @@ import { ApiError } from "./api-errors";
 
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ??
-  // "http://localhost:4000";
-  "https://restaurantsserver.onrender.com";
+  "http://localhost:4000";
+  // "https://restaurantsserver.onrender.com";
 
 const requestTimeoutMs = 20_000;
 const backgroundRequestTimeoutMs = 7_000;
@@ -92,6 +92,10 @@ export function syncPush(token: string, deviceId: string, operations: PushOperat
   });
 }
 
-export function syncPull(token: string, cursor: number) {
-  return adminRequest<{ cursor: number; changes: PullChange[] }>(`/api/owner/sync/pull?cursor=${encodeURIComponent(String(cursor))}`, token);
+export function syncPull(token: string, cursor: number, throughCursor?: number) {
+  return adminRequest<{ cursor: number; changes: PullChange[]; hasMore?: boolean; throughCursor?: number }>(`/api/owner/sync/pull?cursor=${encodeURIComponent(String(cursor))}${throughCursor === undefined ? "" : `&throughCursor=${throughCursor}`}`, token);
+}
+
+export function getRestaurantMenu(slug: string) {
+  return fetchJson<{ restaurant: Restaurant; menu: MenuPayload }>(`/api/restaurants/${encodeURIComponent(slug)}/bundle`, { cache: "no-store" });
 }

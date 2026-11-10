@@ -159,7 +159,7 @@ export function notifySyncStatusChanged() {
 }
 
 export function nextRetryTime(retryCount: number) {
-  const delayMs = Math.min(30_000, 1_000 * 2 ** Math.min(retryCount, 5));
+  const delayMs = Math.min(900_000, 30_000 * 2 ** Math.min(Math.max(0, retryCount - 1), 5) * (1 + Math.random() * 0.2));
   return new Date(Date.now() + delayMs).toISOString();
 }
 

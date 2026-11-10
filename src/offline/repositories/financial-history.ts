@@ -1,3 +1,4 @@
+import { tryIncrementalRefresh } from "../sync-engine";
 import { normalizeSettlement, normalizeMoney, type PaymentPart, type SettlementMode, type MoneyInput } from "@/lib/payments";
 import { adminBackgroundRequest } from "@/lib/api";
 import type { Account, CashMovement, CashRegister, Expense, JournalEntry, OperationalPayment } from "@/types/ops";
@@ -222,6 +223,7 @@ export async function getPendingCashBalanceEffect(tenantId: string) {
 }
 
 async function pullFinancialHistory(context: OfflineContext) {
+  if (await tryIncrementalRefresh(context)) return;
   const now = new Date().toISOString();
   const deviceId = await getDeviceId();
   const [accounts, entries, registers, movements, payments, expenses] = await Promise.all([

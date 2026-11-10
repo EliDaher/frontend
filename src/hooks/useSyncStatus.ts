@@ -27,7 +27,7 @@ const initialStatus: SyncStatusView = {
   conflict: 0,
   totalWaiting: 0,
   issues: [],
-  syncInProgress: false
+  syncInProgress: false,
 };
 
 export function useSyncStatus(tenantId?: string, token?: string) {
@@ -47,14 +47,14 @@ export function useSyncStatus(tenantId?: string, token?: string) {
       try {
         const [connectivity, queue] = await Promise.all([
           checkApiReachable(token),
-          syncQueueSummary(tenantId)
+          syncQueueSummary(tenantId),
         ]);
         if (!cancelled) {
           setStatus({
             browserOnline: connectivity.browserOnline,
             apiReachable: connectivity.apiReachable,
             authRequired: connectivity.authRequired,
-            ...queue
+            ...queue,
           });
         }
       } catch {
@@ -68,18 +68,28 @@ export function useSyncStatus(tenantId?: string, token?: string) {
       }
     }
 
+    const refreshQueue = async () => {
+      const queue = await syncQueueSummary(tenantId);
+      if (!cancelled) setStatus((current) => ({ ...current, ...queue }));
+    };
+    const queueChanged = () => {
+      void refreshQueue().catch(() => {});
+    };
     void refresh();
-    const interval = window.setInterval(refresh, 15_000);
+    const interval = window.setInterval(refresh, 60_000);
     window.addEventListener("online", refresh);
     window.addEventListener("offline", refresh);
-    window.addEventListener("restaurant-sync-status-changed", refresh);
+    window.addEventListener("restaurant-sync-status-changed", queueChanged);
 
     return () => {
       cancelled = true;
       window.clearInterval(interval);
       window.removeEventListener("online", refresh);
       window.removeEventListener("offline", refresh);
-      window.removeEventListener("restaurant-sync-status-changed", refresh);
+      window.removeEventListener(
+        "restaurant-sync-status-changed",
+        queueChanged,
+      );
     };
   }, [tenantId, token]);
 

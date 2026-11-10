@@ -1,3 +1,4 @@
+import { tryIncrementalRefresh } from "../sync-engine";
 import { adminBackgroundRequest } from "@/lib/api";
 import type { OpsTable } from "@/types/ops";
 import { sortTablesByNumber } from "@/lib/table-number";
@@ -37,6 +38,7 @@ export async function refreshTables(context: OfflineContext, strict = false) {
 
 async function pullTables(context: OfflineContext, strict = false) {
   try {
+    if (await tryIncrementalRefresh(context)) return listLocalTables(context.tenantId);
     const remoteTables = await adminBackgroundRequest<OpsTable[]>("/api/owner/ops/tables", context.token);
     const now = new Date().toISOString();
     const deviceId = await getDeviceId();
