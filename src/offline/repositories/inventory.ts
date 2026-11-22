@@ -7,6 +7,25 @@ import { offlineDb } from "../db";
 import { getDeviceId } from "../device";
 import type { SyncStatus } from "../schema";
 import type { OfflineContext } from "./tables";
+import { queueOperation } from "../outbox";
+import { createLocalEntityId } from "../device";
+import { startSync } from "../sync-engine";
+
+export async function createLocalInventoryMovement(context: OfflineContext, input: { inventoryItemId: string; type: InventoryTransaction["type"]; quantity: number; reason: string; referenceType: string; referenceId: string }) {
+  if (!Number.isFinite(input.quantity)) throw new Error("Invalid inventory quantity");
+  const id = createLocalEntityId("inventory");
+  await offlineDb.transaction("rw", offlineDb.inventoryItems, offlineDb.inventoryTransactions, offlineDb.syncQueue, offlineDb.deviceState, async () => {
+    const item = await offlineDb.inventoryItems.get(input.inventoryItemId);
+    if (!item || item.restaurantId !== context.tenantId) throw new Error("Inventory item not found");
+    const delta = input.type === "IN" ? Math.abs(input.quantity) : input.type === "OUT" ? -Math.abs(input.quantity) : input.quantity;
+    const balanceAfter = item.currentQuantity + delta;
+    await offlineDb.inventoryItems.put({ ...item, currentQuantity: balanceAfter, syncStatus: "pending" });
+    await offlineDb.inventoryTransactions.put({ ...input, id, quantity: Math.abs(input.quantity), balanceAfter, restaurantId: context.tenantId, createdById: context.userId, createdAt: new Date().toISOString(), syncStatus: "pending" });
+    await queueOperation({ tenantId: context.tenantId, userId: context.userId, entityType: "inventoryTransaction", entityId: id, action: "adjustInventory", payload: input });
+  });
+  void startSync(context.tenantId, context.token).catch(() => {});
+  return id;
+}
 
 const inventoryRefreshes = new Map<string, Promise<void>>();
 

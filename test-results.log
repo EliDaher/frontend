@@ -1,0 +1,1452 @@
+TAP version 13
+# (node:20820) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:20820) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# Subtest: local action guard
+    # Subtest: runs only one in-flight action at a time
+    ok 1 - runs only one in-flight action at a time
+      ---
+      duration_ms: 0.5651
+      type: 'test'
+      ...
+    # Subtest: releases the lock after a failing action
+    ok 2 - releases the lock after a failing action
+      ---
+      duration_ms: 0.3953
+      type: 'test'
+      ...
+    1..2
+ok 1 - local action guard
+  ---
+  duration_ms: 2.2787
+  type: 'suite'
+  ...
+# (node:20820) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:25488) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:25488) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (node:25488) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:25488) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/eeli5/Desktop/myProjects/Resturants/frontend/src/lib/api.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to C:\\Users\\eeli5\\Desktop\\myProjects\\Resturants\\frontend\\package.json.
+# (node:25488) ExperimentalWarning: The MockTimers API is an experimental feature and might change at any time
+# Subtest: request deadline includes a stalled response body
+ok 2 - request deadline includes a stalled response body
+  ---
+  duration_ms: 5.4348
+  type: 'test'
+  ...
+# Subtest: a malformed successful response is never treated as cloud confirmation
+ok 3 - a malformed successful response is never treated as cloud confirmation
+  ---
+  duration_ms: 1.3815
+  type: 'test'
+  ...
+# (node:37192) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:37192) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# Subtest: auth session token inspection
+    # Subtest: treats a future exp token as usable
+    ok 1 - treats a future exp token as usable
+      ---
+      duration_ms: 1.7972
+      type: 'test'
+      ...
+    # Subtest: treats an expired token as not usable
+    ok 2 - treats an expired token as not usable
+      ---
+      duration_ms: 0.1303
+      type: 'test'
+      ...
+    # Subtest: treats a token expiring inside the safety window as expired
+    ok 3 - treats a token expiring inside the safety window as expired
+      ---
+      duration_ms: 0.1682
+      type: 'test'
+      ...
+    # Subtest: reports missing tokens without calling them expired
+    ok 4 - reports missing tokens without calling them expired
+      ---
+      duration_ms: 0.5247
+      type: 'test'
+      ...
+    # Subtest: does not crash on malformed tokens
+    ok 5 - does not crash on malformed tokens
+      ---
+      duration_ms: 0.0778
+      type: 'test'
+      ...
+    # Subtest: allows legacy tokens without exp to reach server verification
+    ok 6 - allows legacy tokens without exp to reach server verification
+      ---
+      duration_ms: 0.0923
+      type: 'test'
+      ...
+    1..6
+ok 4 - auth session token inspection
+  ---
+  duration_ms: 3.5095
+  type: 'suite'
+  ...
+# (node:37192) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:34012) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:34012) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (node:34012) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:34012) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/eeli5/Desktop/myProjects/Resturants/frontend/src/lib/table-history.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to C:\\Users\\eeli5\\Desktop\\myProjects\\Resturants\\frontend\\package.json.
+# Subtest: business day boundaries
+    # Subtest: uses restaurant time, exact boundaries, defaults and custom minutes
+    ok 1 - uses restaurant time, exact boundaries, defaults and custom minutes
+      ---
+      duration_ms: 49.4232
+      type: 'test'
+      ...
+    # Subtest: handles month/year boundaries and current month by the business day
+    ok 2 - handles month/year boundaries and current month by the business day
+      ---
+      duration_ms: 3.7829
+      type: 'test'
+      ...
+    # Subtest: groups table history by opening time and changes historical grouping with settings
+    ok 3 - groups table history by opening time and changes historical grouping with settings
+      ---
+      duration_ms: 2.9855
+      type: 'test'
+      ...
+    1..3
+ok 5 - business day boundaries
+  ---
+  duration_ms: 60.4974
+  type: 'suite'
+  ...
+# Subtest: financial attribution
+    # Subtest: attributes split and later invoice payments to the table opening day
+    ok 1 - attributes split and later invoice payments to the table opening day
+      ---
+      duration_ms: 1.7125
+      type: 'test'
+      ...
+    # Subtest: resolves legacy references without needing a payment row
+    ok 2 - resolves legacy references without needing a payment row
+      ---
+      duration_ms: 3.0616
+      type: 'test'
+      ...
+    # Subtest: keeps refunds, expenses, manual movements and non-table orders on their execution day
+    ok 3 - keeps refunds, expenses, manual movements and non-table orders on their execution day
+      ---
+      duration_ms: 3.0309
+      type: 'test'
+      ...
+    # Subtest: falls back visibly for a missing order and leaves stored amounts and times intact
+    ok 4 - falls back visibly for a missing order and leaves stored amounts and times intact
+      ---
+      duration_ms: 0.9109
+      type: 'test'
+      ...
+    # Subtest: keeps period totals, chart buckets and report rows consistent without changing balances
+    ok 5 - keeps period totals, chart buckets and report rows consistent without changing balances
+      ---
+      duration_ms: 325.7477
+      type: 'test'
+      ...
+    1..5
+ok 6 - financial attribution
+  ---
+  duration_ms: 335.0196
+  type: 'suite'
+  ...
+# (node:12312) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:12312) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# Subtest: native cash and Sham Cash balances
+    # Subtest: shows 2 dollars as 2 dollars and keeps the stored 286 SYP accounting equivalent
+    ok 1 - shows 2 dollars as 2 dollars and keeps the stored 286 SYP accounting equivalent
+      ---
+      duration_ms: 18.3997
+      type: 'test'
+      ...
+    # Subtest: splits four native buckets across registers and counts opening balances once
+    ok 2 - splits four native buckets across registers and counts opening balances once
+      ---
+      duration_ms: 0.7708
+      type: 'test'
+      ...
+    # Subtest: subtracts withdrawals, expenses and refunds from their own native bucket
+    ok 3 - subtracts withdrawals, expenses and refunds from their own native bucket
+      ---
+      duration_ms: 1.2568
+      type: 'test'
+      ...
+    # Subtest: never revalues historical totals using a new or average exchange rate
+    ok 4 - never revalues historical totals using a new or average exchange rate
+      ---
+      duration_ms: 0.1737
+      type: 'test'
+      ...
+    # Subtest: enriches missing movement metadata from a linked payment without mutating either source
+    ok 5 - enriches missing movement metadata from a linked payment without mutating either source
+      ---
+      duration_ms: 0.2318
+      type: 'test'
+      ...
+    # Subtest: supports legacy order movement references and their reversal metadata
+    ok 6 - supports legacy order movement references and their reversal metadata
+      ---
+      duration_ms: 0.1121
+      type: 'test'
+      ...
+    # Subtest: keeps legacy wallets and unknown methods unclassified rather than mapping them to Sham Cash
+    ok 7 - keeps legacy wallets and unknown methods unclassified rather than mapping them to Sham Cash
+      ---
+      duration_ms: 0.1272
+      type: 'test'
+      ...
+    # Subtest: does not guess native dollars when original amounts are unavailable or conflicting
+    ok 8 - does not guess native dollars when original amounts are unavailable or conflicting
+      ---
+      duration_ms: 0.1587
+      type: 'test'
+      ...
+    # Subtest: keeps known legacy cash amounts in the base currency without inventing conversions
+    ok 9 - keeps known legacy cash amounts in the base currency without inventing conversions
+      ---
+      duration_ms: 0.1694
+      type: 'test'
+      ...
+    # Subtest: does not attach unrelated payments to manual movements
+    ok 10 - does not attach unrelated payments to manual movements
+      ---
+      duration_ms: 0.9956
+      type: 'test'
+      ...
+    # Subtest: includes unassigned movements in period activity but excludes them from current register balances
+    ok 11 - includes unassigned movements in period activity but excludes them from current register balances
+      ---
+      duration_ms: 0.3366
+      type: 'test'
+      ...
+    # Subtest: reports incomplete historical balances separately while reconciling to the recorded total
+    ok 12 - reports incomplete historical balances separately while reconciling to the recorded total
+      ---
+      duration_ms: 0.1596
+      type: 'test'
+      ...
+    # Subtest: does not change current balances when the displayed date range changes
+    ok 13 - does not change current balances when the displayed date range changes
+      ---
+      duration_ms: 0.107
+      type: 'test'
+      ...
+    # Subtest: deduplicates retried records and avoids floating point tails in native dollar amounts
+    ok 14 - deduplicates retried records and avoids floating point tails in native dollar amounts
+      ---
+      duration_ms: 0.0818
+      type: 'test'
+      ...
+    # Subtest: shows sales receipts and returns in four buckets, excluding supplier payments
+    ok 15 - shows sales receipts and returns in four buckets, excluding supplier payments
+      ---
+      duration_ms: 0.1514
+      type: 'test'
+      ...
+    # Subtest: formats currencies clearly and leaves source data and legacy account units unchanged
+    ok 16 - formats currencies clearly and leaves source data and legacy account units unchanged
+      ---
+      duration_ms: 0.325
+      type: 'test'
+      ...
+    1..16
+ok 7 - native cash and Sham Cash balances
+  ---
+  duration_ms: 24.8638
+  type: 'suite'
+  ...
+# (node:12312) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:9380) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:9380) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# Subtest: few categories stay in a single row and page
+ok 8 - few categories stay in a single row and page
+  ---
+  duration_ms: 8.2692
+  type: 'test'
+  ...
+# Subtest: fills two rows before adding another horizontal page
+ok 9 - fills two rows before adding another horizontal page
+  ---
+  duration_ms: 0.227
+  type: 'test'
+  ...
+# Subtest: uses actual widths and exact gap boundaries
+ok 10 - uses actual widths and exact gap boundaries
+  ---
+  duration_ms: 0.1427
+  type: 'test'
+  ...
+# Subtest: reflows for search and narrow screens, preserving reading order
+ok 11 - reflows for search and narrow screens, preserving reading order
+  ---
+  duration_ms: 0.3402
+  type: 'test'
+  ...
+# Subtest: handles missing categories and unmeasurable containers
+ok 12 - handles missing categories and unmeasurable containers
+  ---
+  duration_ms: 0.0904
+  type: 'test'
+  ...
+# (node:9380) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:20968) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:20968) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# Subtest: local conflict payload snapshots
+    # Subtest: preserves operation intent and version context for later resolution
+    ok 1 - preserves operation intent and version context for later resolution
+      ---
+      duration_ms: 2.3011
+      type: 'test'
+      ...
+    # Subtest: copies dependency ids instead of sharing the mutable queue array
+    ok 2 - copies dependency ids instead of sharing the mutable queue array
+      ---
+      duration_ms: 2.6416
+      type: 'test'
+      ...
+    1..2
+ok 13 - local conflict payload snapshots
+  ---
+  duration_ms: 6.4686
+  type: 'suite'
+  ...
+# (node:20968) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:7656) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:7656) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# Subtest: financial cache hydration rules
+    # Subtest: applies server financial records when there is no local copy
+    ok 1 - applies server financial records when there is no local copy
+      ---
+      duration_ms: 1.4282
+      type: 'test'
+      ...
+    # Subtest: applies server refresh to clean local financial records
+    ok 2 - applies server refresh to clean local financial records
+      ---
+      duration_ms: 0.3463
+      type: 'test'
+      ...
+    # Subtest: does not overwrite financial records from another restaurant
+    ok 3 - does not overwrite financial records from another restaurant
+      ---
+      duration_ms: 0.7854
+      type: 'test'
+      ...
+    # Subtest: does not overwrite unresolved local financial state
+    ok 4 - does not overwrite unresolved local financial state
+      ---
+      duration_ms: 0.114
+      type: 'test'
+      ...
+    # Subtest: tombstones clean cached rows missing from a full server refresh
+    ok 5 - tombstones clean cached rows missing from a full server refresh
+      ---
+      duration_ms: 0.0819
+      type: 'test'
+      ...
+    # Subtest: does not tombstone unresolved or cross-restaurant financial rows
+    ok 6 - does not tombstone unresolved or cross-restaurant financial rows
+      ---
+      duration_ms: 0.0907
+      type: 'test'
+      ...
+    1..6
+ok 14 - financial cache hydration rules
+  ---
+  duration_ms: 4.5341
+  type: 'suite'
+  ...
+# Subtest: pending cash balance effect
+    # Subtest: sums only unsynced cash movements
+    ok 1 - sums only unsynced cash movements
+      ---
+      duration_ms: 0.5196
+      type: 'test'
+      ...
+    # Subtest: returns zero when all cash movements are confirmed
+    ok 2 - returns zero when all cash movements are confirmed
+      ---
+      duration_ms: 0.4548
+      type: 'test'
+      ...
+    # Subtest: counts pending manual cash movements toward register balance
+    ok 3 - counts pending manual cash movements toward register balance
+      ---
+      duration_ms: 1.1685
+      type: 'test'
+      ...
+    1..3
+ok 15 - pending cash balance effect
+  ---
+  duration_ms: 4.0774
+  type: 'suite'
+  ...
+# (node:7656) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:18332) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:18332) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# Subtest: safe hydration protection
+    # Subtest: allows a clean local order to receive a remote update
+    ok 1 - allows a clean local order to receive a remote update
+      ---
+      duration_ms: 0.9281
+      type: 'test'
+      ...
+    # Subtest: protects pending local orders from stale remote data
+    ok 2 - protects pending local orders from stale remote data
+      ---
+      duration_ms: 0.1018
+      type: 'test'
+      ...
+    # Subtest: protects syncing local orders
+    ok 3 - protects syncing local orders
+      ---
+      duration_ms: 0.068
+      type: 'test'
+      ...
+    # Subtest: protects conflicted local orders
+    ok 4 - protects conflicted local orders
+      ---
+      duration_ms: 0.069
+      type: 'test'
+      ...
+    # Subtest: protects failed local records while the unresolved operation remains
+    ok 5 - protects failed local records while the unresolved operation remains
+      ---
+      duration_ms: 0.0828
+      type: 'test'
+      ...
+    # Subtest: protects pending local tables
+    ok 6 - protects pending local tables
+      ---
+      duration_ms: 0.1224
+      type: 'test'
+      ...
+    # Subtest: allows clean local tables to receive remote updates
+    ok 7 - allows clean local tables to receive remote updates
+      ---
+      duration_ms: 0.1005
+      type: 'test'
+      ...
+    # Subtest: protects a clean record when a concurrent local write queued an operation
+    ok 8 - protects a clean record when a concurrent local write queued an operation
+      ---
+      duration_ms: 0.6694
+      type: 'test'
+      ...
+    # Subtest: protects remote data arriving after an offline modification
+    ok 9 - protects remote data arriving after an offline modification
+      ---
+      duration_ms: 0.2062
+      type: 'test'
+      ...
+    # Subtest: allows repeated hydration for clean records
+    ok 10 - allows repeated hydration for clean records
+      ---
+      duration_ms: 0.2525
+      type: 'test'
+      ...
+    # Subtest: keeps outbox-backed records protected until the operation is confirmed
+    ok 11 - keeps outbox-backed records protected until the operation is confirmed
+      ---
+      duration_ms: 0.0709
+      type: 'test'
+      ...
+    # Subtest: does not require remote presence to protect a pending local record
+    ok 12 - does not require remote presence to protect a pending local record
+      ---
+      duration_ms: 0.0408
+      type: 'test'
+      ...
+    # Subtest: protects records belonging to another restaurant from cross-tenant overwrite
+    ok 13 - protects records belonging to another restaurant from cross-tenant overwrite
+      ---
+      duration_ms: 0.0401
+      type: 'test'
+      ...
+    # Subtest: protects records with unresolved conflict storage even if the local status is clean
+    ok 14 - protects records with unresolved conflict storage even if the local status is clean
+      ---
+      duration_ms: 0.04
+      type: 'test'
+      ...
+    1..14
+ok 16 - safe hydration protection
+  ---
+  duration_ms: 3.8998
+  type: 'suite'
+  ...
+# (node:18332) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:23344) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:23344) ExperimentalWarning: Module mocking is an experimental feature and might change at any time
+# (node:23344) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (node:23344) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:23344) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/eeli5/Desktop/myProjects/Resturants/frontend/src/offline/db.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to C:\\Users\\eeli5\\Desktop\\myProjects\\Resturants\\frontend\\package.json.
+# [offline-sync] cycle { durationMs: 565, pushedOperations: 0, pulledChanges: 0 }
+# [offline-sync] cycle { durationMs: 5, pushedOperations: 0, pulledChanges: 0 }
+# Subtest: bootstraps 1001 orders, catches an edit during initialization and never snapshots again
+ok 17 - bootstraps 1001 orders, catches an edit during initialization and never snapshots again
+  ---
+  duration_ms: 610.977
+  type: 'test'
+  ...
+# [offline-sync] cycle { durationMs: 186, pushedOperations: 0, pulledChanges: 0 }
+# [offline-sync] cycle { durationMs: 19, pushedOperations: 0, pulledChanges: 0 }
+# Subtest: interrupted bootstrap resumes its page checkpoint and keeps pending records
+ok 18 - interrupted bootstrap resumes its page checkpoint and keeps pending records
+  ---
+  duration_ms: 221.9676
+  type: 'test'
+  ...
+# [offline-sync] cycle { durationMs: 8, pushedOperations: 0, pulledChanges: 0 }
+# [offline-sync] cycle { durationMs: 117, pushedOperations: 0, pulledChanges: 501 }
+# Subtest: drains 501 changes and preserves an unresolved conflict
+ok 19 - drains 501 changes and preserves an unresolved conflict
+  ---
+  duration_ms: 131.2197
+  type: 'test'
+  ...
+# [offline-sync] cycle { durationMs: 6, pushedOperations: 0, pulledChanges: 0 }
+# [offline-sync] cycle { durationMs: 3, pushedOperations: 0, pulledChanges: 0 }
+# [offline-sync] cycle { durationMs: 3, pushedOperations: 0, pulledChanges: 0 }
+# Subtest: quota cooldown persists across sync triggers without dropping pending operations
+ok 20 - quota cooldown persists across sync triggers without dropping pending operations
+  ---
+  duration_ms: 16.0813
+  type: 'test'
+  ...
+# [offline-sync] cycle { durationMs: 6, pushedOperations: 0, pulledChanges: 0 }
+# [offline-sync] cycle { durationMs: 2, pushedOperations: 0, pulledChanges: 0 }
+# [offline-sync] cycle { durationMs: 4, pushedOperations: 1, pulledChanges: 0 }
+# Subtest: HTTP quota preserves the pending operation and retries its original identity once
+ok 21 - HTTP quota preserves the pending operation and retries its original identity once
+  ---
+  duration_ms: 15.9265
+  type: 'test'
+  ...
+# (node:11984) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:11984) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# Subtest: inventory cache hydration rules
+    # Subtest: applies server inventory records when there is no local copy
+    ok 1 - applies server inventory records when there is no local copy
+      ---
+      duration_ms: 5.7122
+      type: 'test'
+      ...
+    # Subtest: applies server refresh to clean local inventory records
+    ok 2 - applies server refresh to clean local inventory records
+      ---
+      duration_ms: 0.1269
+      type: 'test'
+      ...
+    # Subtest: does not replace inventory data from another restaurant
+    ok 3 - does not replace inventory data from another restaurant
+      ---
+      duration_ms: 0.0659
+      type: 'test'
+      ...
+    # Subtest: does not overwrite conflicted local inventory data
+    ok 4 - does not overwrite conflicted local inventory data
+      ---
+      duration_ms: 0.0616
+      type: 'test'
+      ...
+    # Subtest: does not overwrite unresolved local inventory state
+    ok 5 - does not overwrite unresolved local inventory state
+      ---
+      duration_ms: 0.0544
+      type: 'test'
+      ...
+    # Subtest: tombstones clean cached rows missing from a full server refresh
+    ok 6 - tombstones clean cached rows missing from a full server refresh
+      ---
+      duration_ms: 0.2518
+      type: 'test'
+      ...
+    # Subtest: does not tombstone unresolved or cross-restaurant cached rows
+    ok 7 - does not tombstone unresolved or cross-restaurant cached rows
+      ---
+      duration_ms: 0.4138
+      type: 'test'
+      ...
+    1..7
+ok 22 - inventory cache hydration rules
+  ---
+  duration_ms: 8.1958
+  type: 'suite'
+  ...
+# Subtest: pending inventory effects
+    # Subtest: derives pending deductions from completed local orders and cached recipes
+    ok 1 - derives pending deductions from completed local orders and cached recipes
+      ---
+      duration_ms: 1.883
+      type: 'test'
+      ...
+    # Subtest: ignores synced completion operations
+    ok 2 - ignores synced completion operations
+      ---
+      duration_ms: 0.1677
+      type: 'test'
+      ...
+    # Subtest: reports unknown pending effects when local order or recipe details are missing
+    ok 3 - reports unknown pending effects when local order or recipe details are missing
+      ---
+      duration_ms: 0.2118
+      type: 'test'
+      ...
+    1..3
+ok 23 - pending inventory effects
+  ---
+  duration_ms: 2.5924
+  type: 'suite'
+  ...
+# (node:11984) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:25884) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:25884) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# Subtest: invoice cache hydration rules
+    # Subtest: applies server invoices when there is no local copy
+    ok 1 - applies server invoices when there is no local copy
+      ---
+      duration_ms: 0.6658
+      type: 'test'
+      ...
+    # Subtest: allows server confirmation to reconcile a pending local invoice
+    ok 2 - allows server confirmation to reconcile a pending local invoice
+      ---
+      duration_ms: 0.0958
+      type: 'test'
+      ...
+    # Subtest: does not replace an invoice from another restaurant
+    ok 3 - does not replace an invoice from another restaurant
+      ---
+      duration_ms: 0.0814
+      type: 'test'
+      ...
+    # Subtest: does not overwrite a local invoice in conflict
+    ok 4 - does not overwrite a local invoice in conflict
+      ---
+      duration_ms: 0.0645
+      type: 'test'
+      ...
+    # Subtest: records total mismatches during reconciliation
+    ok 5 - records total mismatches during reconciliation
+      ---
+      duration_ms: 7.2442
+      type: 'test'
+      ...
+    # Subtest: does not warn when local and server totals match
+    ok 6 - does not warn when local and server totals match
+      ---
+      duration_ms: 0.0986
+      type: 'test'
+      ...
+    1..6
+ok 24 - invoice cache hydration rules
+  ---
+  duration_ms: 9.1121
+  type: 'suite'
+  ...
+# (node:30180) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:30180) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# Subtest: remembers successive creations
+ok 25 - remembers successive creations
+  ---
+  duration_ms: 0.6304
+  type: 'test'
+  ...
+# Subtest: explicit context takes precedence without changing creation preference
+ok 26 - explicit context takes precedence without changing creation preference
+  ---
+  duration_ms: 0.5462
+  type: 'test'
+  ...
+# Subtest: deleted and inactive categories fall back
+ok 27 - deleted and inactive categories fall back
+  ---
+  duration_ms: 0.1
+  type: 'test'
+  ...
+# Subtest: inactive explicit contexts fall back to remembered category
+ok 28 - inactive explicit contexts fall back to remembered category
+  ---
+  duration_ms: 0.0942
+  type: 'test'
+  ...
+# Subtest: restaurant preferences do not leak even with overlapping category IDs
+ok 29 - restaurant preferences do not leak even with overlapping category IDs
+  ---
+  duration_ms: 0.231
+  type: 'test'
+  ...
+# (node:30180) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:16844) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:16844) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# Subtest: menu item validation shared by controls and submission
+    # Subtest: initial form disables Save and cannot submit
+    ok 1 - initial form disables Save and cannot submit
+      ---
+      duration_ms: 1.4626
+      type: 'test'
+      ...
+    # Subtest: name only disables Save and cannot submit
+    ok 2 - name only disables Save and cannot submit
+      ---
+      duration_ms: 0.1997
+      type: 'test'
+      ...
+    # Subtest: zero price disables Save and cannot submit
+    ok 3 - zero price disables Save and cannot submit
+      ---
+      duration_ms: 0.5279
+      type: 'test'
+      ...
+    # Subtest: whitespace name disables Save and cannot submit
+    ok 4 - whitespace name disables Save and cannot submit
+      ---
+      duration_ms: 1.7647
+      type: 'test'
+      ...
+    # Subtest: nonfinite price disables Save and cannot submit
+    ok 5 - nonfinite price disables Save and cannot submit
+      ---
+      duration_ms: 20.0063
+      type: 'test'
+      ...
+    # Subtest: invalid category disables Save and cannot submit
+    ok 6 - invalid category disables Save and cannot submit
+      ---
+      duration_ms: 0.1894
+      type: 'test'
+      ...
+    # Subtest: negative sort order disables Save and cannot submit
+    ok 7 - negative sort order disables Save and cannot submit
+      ---
+      duration_ms: 1.3152
+      type: 'test'
+      ...
+    # Subtest: fractional sort order disables Save and cannot submit
+    ok 8 - fractional sort order disables Save and cannot submit
+      ---
+      duration_ms: 0.3155
+      type: 'test'
+      ...
+    # Subtest: positive decimal price and valid category enable Save
+    ok 9 - positive decimal price and valid category enable Save
+      ---
+      duration_ms: 0.3645
+      type: 'test'
+      ...
+    1..9
+ok 30 - menu item validation shared by controls and submission
+  ---
+  duration_ms: 31.2921
+  type: 'suite'
+  ...
+# Subtest: confirmed saves and rapid creation
+    # Subtest: double Save starts one request
+    ok 1 - double Save starts one request
+      ---
+      duration_ms: 0.5528
+      type: 'test'
+      ...
+    # Subtest: create notifies, stays open, resets fields, preserves category/order and disables Save
+    ok 2 - create notifies, stays open, resets fields, preserves category/order and disables Save
+      ---
+      duration_ms: 1.1144
+      type: 'test'
+      ...
+    # Subtest: two consecutive creations produce distinct items, without resubmitting cleared fields
+    ok 3 - two consecutive creations produce distinct items, without resubmitting cleared fields
+      ---
+      duration_ms: 0.373
+      type: 'test'
+      ...
+    # Subtest: failure preserves values and image, shows no success, releases lock and permits retry
+    ok 4 - failure preserves values and image, shows no success, releases lock and permits retry
+      ---
+      duration_ms: 0.3857
+      type: 'test'
+      ...
+    # Subtest: ambiguous create/update responses preserve data without a toast or retry
+    ok 5 - ambiguous create/update responses preserve data without a toast or retry
+      ---
+      duration_ms: 0.3742
+      type: 'test'
+      ...
+    # Subtest: confirmed edit closes with actual category and leaves new-item preference alone
+    ok 6 - confirmed edit closes with actual category and leaves new-item preference alone
+      ---
+      duration_ms: 0.2815
+      type: 'test'
+      ...
+    1..6
+ok 31 - confirmed saves and rapid creation
+  ---
+  duration_ms: 3.4263
+  type: 'suite'
+  ...
+# (node:16844) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:37068) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:37068) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (node:37068) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:37068) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/eeli5/Desktop/myProjects/Resturants/frontend/src/lib/cash-balances.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to C:\\Users\\eeli5\\Desktop\\myProjects\\Resturants\\frontend\\package.json.
+# (node:37068) ExperimentalWarning: Module mocking is an experimental feature and might change at any time
+# [offline-sync] cycle { durationMs: 93, pushedOperations: 2, pulledChanges: 12 }
+# Subtest: offline financial transactions
+    # Subtest: persists a purchase invoice and dependent settlement offline, then commits each effect once
+    ok 1 - persists a purchase invoice and dependent settlement offline, then commits each effect once
+      ---
+      duration_ms: 153.0192
+      type: 'test'
+      ...
+    # Subtest: stores mixed checkout and dependent settlements atomically without a network
+    ok 2 - stores mixed checkout and dependent settlements atomically without a network
+      ---
+      duration_ms: 24.5315
+      type: 'test'
+      ...
+    # Subtest: rolls back every local artifact when a selected register is missing
+    ok 3 - rolls back every local artifact when a selected register is missing
+      ---
+      duration_ms: 8.9715
+      type: 'test'
+      ...
+    # Subtest: stores dollar expenses once and queues payable settlements after their creation
+    ok 4 - stores dollar expenses once and queues payable settlements after their creation
+      ---
+      duration_ms: 22.6524
+      type: 'test'
+      ...
+    # Subtest: normalizes manual dollar movements and rejects overpayments before any writes
+    ok 5 - normalizes manual dollar movements and rejects overpayments before any writes
+      ---
+      duration_ms: 14.4619
+      type: 'test'
+      ...
+# [offline-sync] cycle { durationMs: 53, pushedOperations: 3, pulledChanges: 25 }
+    # Subtest: synchronizes queued checkout, later settlement and cancellation with the server in dependency order
+    ok 6 - synchronizes queued checkout, later settlement and cancellation with the server in dependency order
+      ---
+      duration_ms: 72.183
+      type: 'test'
+      ...
+    # Subtest: stores an optional customer name offline for FULL ("  أحمد  ")
+    ok 7 - stores an optional customer name offline for FULL ("  أحمد  ")
+      ---
+      duration_ms: 10.6043
+      type: 'test'
+      ...
+    # Subtest: stores an optional customer name offline for PARTIAL ("زبون جزئي")
+    ok 8 - stores an optional customer name offline for PARTIAL ("زبون جزئي")
+      ---
+      duration_ms: 4.5455
+      type: 'test'
+      ...
+    # Subtest: stores an optional customer name offline for DEBT ("زبون الدين")
+    ok 9 - stores an optional customer name offline for DEBT ("زبون الدين")
+      ---
+      duration_ms: 8.3912
+      type: 'test'
+      ...
+    # Subtest: stores an optional customer name offline for FULL ("  ")
+    ok 10 - stores an optional customer name offline for FULL ("  ")
+      ---
+      duration_ms: 6.3695
+      type: 'test'
+      ...
+    # Subtest: stores an optional customer name offline for DEBT (undefined)
+    ok 11 - stores an optional customer name offline for DEBT (undefined)
+      ---
+      duration_ms: 9.1475
+      type: 'test'
+      ...
+# [offline-sync] cycle { durationMs: 11, pushedOperations: 1, pulledChanges: 12 }
+# [offline-sync] cycle { durationMs: 6, pushedOperations: 0, pulledChanges: 0 }
+    # Subtest: preserves all four native cash buckets before and after synchronization and retries
+    ok 12 - preserves all four native cash buckets before and after synchronization and retries
+      ---
+      duration_ms: 23.5768
+      type: 'test'
+      ...
+    1..12
+ok 32 - offline financial transactions
+  ---
+  duration_ms: 360.6236
+  type: 'suite'
+  ...
+# (node:34236) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:34236) ExperimentalWarning: Module mocking is an experimental feature and might change at any time
+# (node:34236) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (node:34236) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:34236) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/eeli5/Desktop/myProjects/Resturants/frontend/src/offline/realtime.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to C:\\Users\\eeli5\\Desktop\\myProjects\\Resturants\\frontend\\package.json.
+# (node:34236) ExperimentalWarning: The MockTimers API is an experimental feature and might change at any time
+# Subtest: deduplicates notifications, reconciles on reconnect and cancels timers on disconnect
+ok 33 - deduplicates notifications, reconciles on reconnect and cancels timers on disconnect
+  ---
+  duration_ms: 1.6272
+  type: 'test'
+  ...
+# (node:7308) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:7308) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# Subtest: order receipt snapshots
+    # Subtest: prints from the local pending invoice snapshot when available
+    ok 1 - prints from the local pending invoice snapshot when available
+      ---
+      duration_ms: 1.5404
+      type: 'test'
+      ...
+    # Subtest: marks synced invoices as confirmed receipts
+    ok 2 - marks synced invoices as confirmed receipts
+      ---
+      duration_ms: 0.1607
+      type: 'test'
+      ...
+    # Subtest: does not use later live order item changes when an invoice snapshot exists
+    ok 3 - does not use later live order item changes when an invoice snapshot exists
+      ---
+      duration_ms: 0.554
+      type: 'test'
+      ...
+    # Subtest: prints saved currencies and exchange rates without revaluing old payments
+    ok 4 - prints saved currencies and exchange rates without revaluing old payments
+      ---
+      duration_ms: 0.1748
+      type: 'test'
+      ...
+    # Subtest: uses the saved invoice customer name for printing without changing the order name
+    ok 5 - uses the saved invoice customer name for printing without changing the order name
+      ---
+      duration_ms: 0.1116
+      type: 'test'
+      ...
+    # Subtest: does not include a customer name in unnamed or whitespace-only receipts
+    ok 6 - does not include a customer name in unnamed or whitespace-only receipts
+      ---
+      duration_ms: 0.1095
+      type: 'test'
+      ...
+    1..6
+ok 34 - order receipt snapshots
+  ---
+  duration_ms: 6.1699
+  type: 'suite'
+  ...
+# (node:7308) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:37960) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:37960) ExperimentalWarning: Module mocking is an experimental feature and might change at any time
+# (node:37960) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (node:37960) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:37960) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/eeli5/Desktop/myProjects/Resturants/frontend/src/offline/db.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to C:\\Users\\eeli5\\Desktop\\myProjects\\Resturants\\frontend\\package.json.
+# Subtest: offline patches coalesce, closure remains ordered and all survive reopening IndexedDB
+ok 35 - offline patches coalesce, closure remains ordered and all survive reopening IndexedDB
+  ---
+  duration_ms: 115.591
+  type: 'test'
+  ...
+# Subtest: an attempted operation is immutable and cannot be coalesced after lost acknowledgment
+ok 36 - an attempted operation is immutable and cannot be coalesced after lost acknowledgment
+  ---
+  duration_ms: 13.9684
+  type: 'test'
+  ...
+# [offline-sync] cycle { durationMs: 22, pushedOperations: 2, pulledChanges: 0 }
+# Subtest: older acknowledgment never reopens a locally closed order or loses its dependent completion
+ok 37 - older acknowledgment never reopens a locally closed order or loses its dependent completion
+  ---
+  duration_ms: 30.5283
+  type: 'test'
+  ...
+# Subtest: active lease protects in-flight work; an abandoned lease is recoverable
+ok 38 - active lease protects in-flight work; an abandoned lease is recoverable
+  ---
+  duration_ms: 5.9319
+  type: 'test'
+  ...
+# [offline-sync] cycle { durationMs: 9, pushedOperations: 0, pulledChanges: 0 }
+# Subtest: 23-hour recovery verifies a committed operation without resubmitting its effect
+ok 39 - 23-hour recovery verifies a committed operation without resubmitting its effect
+  ---
+  duration_ms: 15.7197
+  type: 'test'
+  ...
+# [offline-sync] cycle { durationMs: 10, pushedOperations: 0, pulledChanges: 0 }
+# Subtest: missing dependencies become durable needs-attention after status verification
+ok 40 - missing dependencies become durable needs-attention after status verification
+  ---
+  duration_ms: 15.8629
+  type: 'test'
+  ...
+# [offline-sync] cycle { durationMs: 3, pushedOperations: 0, pulledChanges: 0 }
+# Subtest: 24-hour repeated failures retain the operation and stop automatic resubmission
+ok 41 - 24-hour repeated failures retain the operation and stop automatic resubmission
+  ---
+  duration_ms: 9.0318
+  type: 'test'
+  ...
+# Subtest: waiter legacy migration preserves the backup and never replaces a durable confirmation
+ok 42 - waiter legacy migration preserves the backup and never replaces a durable confirmation
+  ---
+  duration_ms: 18.7489
+  type: 'test'
+  ...
+# (node:16792) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:16792) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# Subtest: restaurant session cache matching
+    # Subtest: reads the restaurant id from the session token payload
+    ok 1 - reads the restaurant id from the session token payload
+      ---
+      duration_ms: 0.7014
+      type: 'test'
+      ...
+    # Subtest: allows a cached restaurant only when it belongs to the current session
+    ok 2 - allows a cached restaurant only when it belongs to the current session
+      ---
+      duration_ms: 0.1409
+      type: 'test'
+      ...
+    # Subtest: rejects cached data for another restaurant
+    ok 3 - rejects cached data for another restaurant
+      ---
+      duration_ms: 0.1004
+      type: 'test'
+      ...
+    # Subtest: does not allow arbitrary cached fallback when the session has no restaurant id
+    ok 4 - does not allow arbitrary cached fallback when the session has no restaurant id
+      ---
+      duration_ms: 0.0912
+      type: 'test'
+      ...
+    # Subtest: rejects malformed tokens
+    ok 5 - rejects malformed tokens
+      ---
+      duration_ms: 0.0593
+      type: 'test'
+      ...
+    1..5
+ok 43 - restaurant session cache matching
+  ---
+  duration_ms: 1.8673
+  type: 'suite'
+  ...
+# (node:16792) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:37096) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:37096) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# Subtest: table details add-items merge behavior
+    # Subtest: merges the same item added twice into one line with quantity 2
+    ok 1 - merges the same item added twice into one line with quantity 2
+      ---
+      duration_ms: 1.5545
+      type: 'test'
+      ...
+    # Subtest: merges the same item added ten times into one line with quantity 10
+    ok 2 - merges the same item added ten times into one line with quantity 10
+      ---
+      duration_ms: 0.3787
+      type: 'test'
+      ...
+    # Subtest: merges dialog quantity into an existing compatible order line
+    ok 3 - merges dialog quantity into an existing compatible order line
+      ---
+      duration_ms: 0.2347
+      type: 'test'
+      ...
+    # Subtest: does not merge different item ids
+    ok 4 - does not merge different item ids
+      ---
+      duration_ms: 0.255
+      type: 'test'
+      ...
+    # Subtest: does not merge matching display names with different ids
+    ok 5 - does not merge matching display names with different ids
+      ---
+      duration_ms: 0.2351
+      type: 'test'
+      ...
+    # Subtest: does not merge incompatible notes or modifiers
+    ok 6 - does not merge incompatible notes or modifiers
+      ---
+      duration_ms: 0.2179
+      type: 'test'
+      ...
+    # Subtest: decrements temporary selection quantity
+    ok 7 - decrements temporary selection quantity
+      ---
+      duration_ms: 0.3657
+      type: 'test'
+      ...
+    # Subtest: removes temporary selection when quantity reaches zero
+    ok 8 - removes temporary selection when quantity reaches zero
+      ---
+      duration_ms: 0.9376
+      type: 'test'
+      ...
+    # Subtest: preserves total quantity and amount after dialog commit
+    ok 9 - preserves total quantity and amount after dialog commit
+      ---
+      duration_ms: 8.8233
+      type: 'test'
+      ...
+    1..9
+ok 44 - table details add-items merge behavior
+  ---
+  duration_ms: 16.1182
+  type: 'suite'
+  ...
+# (node:37096) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:30056) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:30056) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# Subtest: requires name and positive integer capacity
+ok 45 - requires name and positive integer capacity
+  ---
+  duration_ms: 1.2168
+  type: 'test'
+  ...
+# Subtest: same-restaurant duplicate gives exact Arabic inline feedback
+ok 46 - same-restaurant duplicate gives exact Arabic inline feedback
+  ---
+  duration_ms: 0.5278
+  type: 'test'
+  ...
+# Subtest: unchanged edit excludes its own ID and conflicting rename is rejected
+ok 47 - unchanged edit excludes its own ID and conflicting rename is rejected
+  ---
+  duration_ms: 0.7894
+  type: 'test'
+  ...
+# Subtest: another restaurant and deleted tables do not conflict
+ok 48 - another restaurant and deleted tables do not conflict
+  ---
+  duration_ms: 0.4333
+  type: 'test'
+  ...
+# Subtest: frontend and backend normalization agree
+ok 49 - frontend and backend normalization agree
+  ---
+  duration_ms: 0.6675
+  type: 'test'
+  ...
+# Subtest: digit normalization applies only to numeric identities, preserving named tables
+ok 50 - digit normalization applies only to numeric identities, preserving named tables
+  ---
+  duration_ms: 0.7679
+  type: 'test'
+  ...
+# Subtest: distinguishes structured duplicate conflicts from other failures
+ok 51 - distinguishes structured duplicate conflicts from other failures
+  ---
+  duration_ms: 0.1609
+  type: 'test'
+  ...
+# Subtest: requires server confirmation before a successful create/update
+ok 52 - requires server confirmation before a successful create/update
+  ---
+  duration_ms: 0.2423
+  type: 'test'
+  ...
+# Subtest: validation preserves the entered form and cached table references
+ok 53 - validation preserves the entered form and cached table references
+  ---
+  duration_ms: 0.427
+  type: 'test'
+  ...
+# Subtest: offline table administration stops before writes; cached data remains available
+ok 54 - offline table administration stops before writes; cached data remains available
+  ---
+  duration_ms: 0.5598
+  type: 'test'
+  ...
+# Subtest: confirmed create followed by cache failure is still saved and is not retried
+ok 55 - confirmed create followed by cache failure is still saved and is not retried
+  ---
+  duration_ms: 0.2596
+  type: 'test'
+  ...
+# Subtest: server conflict does not mutate the cache or claim successful creation
+ok 56 - server conflict does not mutate the cache or claim successful creation
+  ---
+  duration_ms: 0.212
+  type: 'test'
+  ...
+# Subtest: successful edit refreshes only its stable ID after confirmation
+ok 57 - successful edit refreshes only its stable ID after confirmation
+  ---
+  duration_ms: 0.1303
+  type: 'test'
+  ...
+# Subtest: renaming a table never submits a stale current-order association
+ok 58 - renaming a table never submits a stale current-order association
+  ---
+  duration_ms: 0.0907
+  type: 'test'
+  ...
+# (node:30056) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:33380) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:33380) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# Subtest: sorts numeric tables ascending without lexicographic or precision errors
+ok 59 - sorts numeric tables ascending without lexicographic or precision errors
+  ---
+  duration_ms: 3.0777
+  type: 'test'
+  ...
+# Subtest: normalizes mixed Arabic, Persian, and English numeric representations for sorting
+ok 60 - normalizes mixed Arabic, Persian, and English numeric representations for sorting
+  ---
+  duration_ms: 0.29
+  type: 'test'
+  ...
+# Subtest: uses a natural deterministic fallback for named tables without changing identities
+ok 61 - uses a natural deterministic fallback for named tables without changing identities
+  ---
+  duration_ms: 0.2849
+  type: 'test'
+  ...
+# Subtest: search and status filters preserve the same order whether applied before or after sorting
+ok 62 - search and status filters preserve the same order whether applied before or after sorting
+  ---
+  duration_ms: 0.2489
+  type: 'test'
+  ...
+# Subtest: keeps equivalent numeric values stable through repeated sorting and refreshed record objects
+ok 63 - keeps equivalent numeric values stable through repeated sorting and refreshed record objects
+  ---
+  duration_ms: 1.0791
+  type: 'test'
+  ...
+# Subtest: does not mutate Dexie or React arrays or records
+ok 64 - does not mutate Dexie or React arrays or records
+  ---
+  duration_ms: 0.226
+  type: 'test'
+  ...
+# (node:33380) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:29620) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:29620) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# Subtest: direct quantities support English, Arabic and Persian digits and reject invalid values
+ok 65 - direct quantities support English, Arabic and Persian digits and reject invalid values
+  ---
+  duration_ms: 1.6539
+  type: 'test'
+  ...
+# Subtest: ordinary additions increment only an unnoted line, preserving special instructions
+ok 66 - ordinary additions increment only an unnoted line, preserving special instructions
+  ---
+  duration_ms: 0.9613
+  type: 'test'
+  ...
+# Subtest: different-note copies have independent identity, quantity and notes
+ok 67 - different-note copies have independent identity, quantity and notes
+  ---
+  duration_ms: 1.5939
+  type: 'test'
+  ...
+# Subtest: legacy drafts and queued batches restore independently and keep stable ids on reload
+ok 68 - legacy drafts and queued batches restore independently and keep stable ids on reload
+  ---
+  duration_ms: 0.3685
+  type: 'test'
+  ...
+# Subtest: duplicate legacy ids are repaired and quantity and batch limits stay enforced
+ok 69 - duplicate legacy ids are repaired and quantity and batch limits stay enforced
+  ---
+  duration_ms: 0.198
+  type: 'test'
+  ...
+# Subtest: adding with a note starts its own serving without changing existing quantities or notes
+ok 70 - adding with a note starts its own serving without changing existing quantities or notes
+  ---
+  duration_ms: 0.115
+  type: 'test'
+  ...
+# Subtest: menu quantity shortcuts add two or four units without changing noted servings
+ok 71 - menu quantity shortcuts add two or four units without changing noted servings
+  ---
+  duration_ms: 0.1989
+  type: 'test'
+  ...
+# (node:14876) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:14876) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (node:14876) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:14876) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/eeli5/Desktop/myProjects/Resturants/frontend/src/components/waiter/data-client.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to C:\\Users\\eeli5\\Desktop\\myProjects\\Resturants\\frontend\\package.json.
+# Subtest: menu is fetched once, concurrent initialization is coalesced, IndexedDB survives a page-client reload
+ok 72 - menu is fetched once, concurrent initialization is coalesced, IndexedDB survives a page-client reload
+  ---
+  duration_ms: 17.7062
+  type: 'test'
+  ...
+# Subtest: cache is isolated by restaurant, user AND authenticated session; new login gets a fresh menu
+ok 73 - cache is isolated by restaurant, user AND authenticated session; new login gets a fresh menu
+  ---
+  duration_ms: 7.363
+  type: 'test'
+  ...
+# Subtest: two page clients sharing a session serialize cache misses across tabs
+ok 74 - two page clients sharing a session serialize cache misses across tabs
+  ---
+  duration_ms: 1.5544
+  type: 'test'
+  ...
+# Subtest: failed initialization allows explicit menu retry; unavailable IndexedDB retains the successful in-memory result
+ok 75 - failed initialization allows explicit menu retry; unavailable IndexedDB retains the successful in-memory result
+  ---
+  duration_ms: 2.8181
+  type: 'test'
+  ...
+# Subtest: logout/expiry invalidation removes only the relevant session; an in-flight fetch cannot resurrect it
+ok 76 - logout/expiry invalidation removes only the relevant session; an in-flight fetch cannot resurrect it
+  ---
+  duration_ms: 3.2235
+  type: 'test'
+  ...
+# Subtest: initial and explicit state refreshes only read state; overlapping refreshes share one request
+ok 77 - initial and explicit state refreshes only read state; overlapping refreshes share one request
+  ---
+  duration_ms: 2.84
+  type: 'test'
+  ...
+# Subtest: a failed refresh allows manual retry and leaves the previous displayed snapshot intact
+ok 78 - a failed refresh allows manual retry and leaves the previous displayed snapshot intact
+  ---
+  duration_ms: 0.9011
+  type: 'test'
+  ...
+# (node:14876) ExperimentalWarning: The MockTimers API is an experimental feature and might change at any time
+# Subtest: idle time, focus and visibility never request data; reconnect only invokes submission recovery
+ok 79 - idle time, focus and visibility never request data; reconnect only invokes submission recovery
+  ---
+  duration_ms: 3.1808
+  type: 'test'
+  ...
+# Subtest: successful submission updates confirmed UI, strips local fields and makes no data-fetch requests
+ok 80 - successful submission updates confirmed UI, strips local fields and makes no data-fetch requests
+  ---
+  duration_ms: 2.8439
+  type: 'test'
+  ...
+# Subtest: lost response keeps a durable pending batch; reload/manual retry uses same operation ID without duplicate application
+ok 81 - lost response keeps a durable pending batch; reload/manual retry uses same operation ID without duplicate application
+  ---
+  duration_ms: 2.029
+  type: 'test'
+  ...
+# Subtest: double taps coalesce, stale accounts cannot send the next queued batch or change another account's UI
+ok 82 - double taps coalesce, stale accounts cannot send the next queued batch or change another account's UI
+  ---
+  duration_ms: 0.5959
+  type: 'test'
+  ...
+# Subtest: offline submissions stay queued; 401 stops recovery; conflicts need review; 503 is a finite retryable pass
+ok 83 - offline submissions stay queued; 401 stops recovery; conflicts need review; 503 is a finite retryable pass
+  ---
+  duration_ms: 1.6549
+  type: 'test'
+  ...
+# Subtest: submission waits for an in-flight snapshot; replay after closure removes only that table's old order
+ok 84 - submission waits for an in-flight snapshot; replay after closure removes only that table's old order
+  ---
+  duration_ms: 0.824
+  type: 'test'
+  ...
+# Subtest: waiter component wires explicit initialization/refresh, token expiry cleanup, and no data polling/focus hooks
+ok 85 - waiter component wires explicit initialization/refresh, token expiry cleanup, and no data polling/focus hooks
+  ---
+  duration_ms: 4.9068
+  type: 'test'
+  ...
+# Subtest: incremental waiter reconciliation recovers missed events, pages changes and preserves its cursor through confirmations
+ok 86 - incremental waiter reconciliation recovers missed events, pages changes and preserves its cursor through confirmations
+  ---
+  duration_ms: 0.8224
+  type: 'test'
+  ...
+1..86
+# tests 188
+# suites 18
+# pass 188
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1990.6599

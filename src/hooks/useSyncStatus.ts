@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { checkApiReachable } from "@/offline/connectivity";
 import { syncQueueSummary, type SyncQueueIssue } from "@/offline/outbox";
+import { connectRealtime } from "@/offline/realtime";
+import { startSync } from "@/offline/sync-engine";
 
 export type SyncStatusView = {
   browserOnline: boolean;
@@ -15,6 +17,7 @@ export type SyncStatusView = {
   totalWaiting: number;
   issues: SyncQueueIssue[];
   syncInProgress: boolean;
+  reconcilingBusinessDay: boolean;
 };
 
 const initialStatus: SyncStatusView = {
@@ -28,10 +31,15 @@ const initialStatus: SyncStatusView = {
   totalWaiting: 0,
   issues: [],
   syncInProgress: false,
+  reconcilingBusinessDay: false,
 };
 
 export function useSyncStatus(tenantId?: string, token?: string) {
   const [status, setStatus] = useState<SyncStatusView>(initialStatus);
+  useEffect(() => {
+    if (!tenantId || !token) return;
+    return connectRealtime(token, tenantId, () => startSync(tenantId, token));
+  }, [tenantId, token]);
 
   useEffect(() => {
     let cancelled = false;

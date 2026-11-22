@@ -8,6 +8,7 @@ function createUuid() {
 }
 
 export async function getDeviceId() {
+  return offlineDb.transaction("rw", offlineDb.deviceState, async () => {
   const now = new Date().toISOString();
   const existing = await offlineDb.deviceState.get("current");
   if (existing) {
@@ -23,6 +24,7 @@ export async function getDeviceId() {
     lastSeenAt: now
   });
   return deviceId;
+  });
 }
 
 export function createOperationId() {

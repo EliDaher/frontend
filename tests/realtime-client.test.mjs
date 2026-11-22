@@ -1,0 +1,22 @@
+import assert from "node:assert/strict";
+import { test, mock } from "node:test";
+const handlers = new Map();
+let disconnected = false;
+mock.module("socket.io-client", { namedExports: { io: () => ({ on: (name, callback) => handlers.set(name, callback), disconnect: () => { disconnected = true; } }) } });
+mock.module("../src/lib/api.ts", { namedExports: { API_BASE_URL: "https://backend.test" } });
+const { connectRealtime } = await import("../src/offline/realtime.ts");
+test("deduplicates notifications, reconciles on reconnect and cancels timers on disconnect", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  let reconciliations = 0;
+  const dispose = connectRealtime("token", "r", async () => { reconciliations++; });
+  const drain = async () => { t.mock.timers.tick(200); await Promise.resolve(); await Promise.resolve(); };
+  handlers.get("connect")(); await drain(); assert.equal(reconciliations, 1);
+  const event = { tenantId: "r", cursor: 10 };
+  handlers.get("sync:changed")(event); handlers.get("sync:changed")(event); await drain();
+  assert.equal(reconciliations, 2);
+  handlers.get("sync:changed")({ tenantId: "other", cursor: 20 }); await drain(); assert.equal(reconciliations, 2);
+  handlers.get("connect")(); await drain(); assert.equal(reconciliations, 3);
+  t.mock.timers.tick(120000); await drain(); assert.equal(reconciliations, 4);
+  dispose(); t.mock.timers.tick(240000); await drain();
+  assert.equal(disconnected, true); assert.equal(reconciliations, 4);
+});

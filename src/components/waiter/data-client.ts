@@ -11,6 +11,7 @@ export type WaiterMenu = {
   categories: { id: string; name: string; order: number }[];
 };
 export type WaiterState = {
+  cursor?: number;
   tables: { id: string; name: string; area: string; status: string; currentOrderId: string }[];
   orders: { id: string; tableId: string; status?: string; items: OrderLine[] }[];
 };
@@ -78,14 +79,28 @@ export class WaiterDataClient {
     return menu;
   }
 
-  refresh(s: WaiterSession): Promise<WaiterState> {
+  refresh(s: WaiterSession, current?: WaiterState): Promise<WaiterState> {
     const key = menuCacheKey(s);
     const existing = this.states.get(key);
     if (existing) return existing;
-    const pending = this.request<WaiterState>("/api/waiter/state", s.token)
+    const pending = (current?.cursor === undefined ? this.request<WaiterState>("/api/waiter/state", s.token) : this.pullChanges(s, current))
       .finally(() => { this.states.delete(key); });
     this.states.set(key, pending);
     return pending;
+  }
+
+  private async pullChanges(s: WaiterSession, current: WaiterState): Promise<WaiterState> {
+    let state = { ...current, tables: [...current.tables], orders: [...current.orders] };
+    for (;;) {
+      const page = await this.request<{ cursor: number; hasMore: boolean; updates: Array<{ entityType: string; entityId: string; data: unknown }> }>(`/api/waiter/changes?cursor=${state.cursor}`, s.token);
+      if (page.hasMore && page.cursor <= Number(state.cursor)) throw new Error("Sync cursor did not advance");
+      for (const update of page.updates) {
+        if (update.entityType === "table") state.tables = [...state.tables.filter(t => t.id !== update.entityId), ...(update.data ? [update.data as WaiterState["tables"][number]] : [])];
+        if (update.entityType === "order") state.orders = [...state.orders.filter(o => o.id !== update.entityId), ...(update.data ? [update.data as WaiterState["orders"][number]] : [])];
+      }
+      state.cursor = page.cursor;
+      if (!page.hasMore) return state;
+    }
   }
 
   async waitForRefresh(s: WaiterSession) {
@@ -103,6 +118,7 @@ export class WaiterDataClient {
 
 export function applyConfirmation(state: WaiterState, batchTableId: string, result: BatchConfirmation): WaiterState {
   return {
+    cursor: state.cursor,
     tables: [...state.tables.filter(t => t.id !== batchTableId), ...(result.table ? [result.table] : [])],
     orders: [
       ...state.orders.filter(o => o.id !== result.orderId && o.tableId !== batchTableId),

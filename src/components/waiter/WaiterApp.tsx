@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { adminRequest } from "@/lib/api";
 import { ApiError } from "@/lib/api-errors";
 import { tokenExpirationMs } from "@/offline/auth-session";
+import { connectRealtime } from "@/offline/realtime";
+import { persistBatch, restoreBatches, migrateBatches, waiterOwner } from "./outbox";
 import { waiterMenuCache } from "./menu-cache";
 import { PendingBatchSender, type WaiterBatch as Batch } from "./submission";
 import { applyConfirmation, bindSubmissionRecovery, WaiterDataClient, type WaiterMenu, type WaiterState, type WaiterSession, type BatchConfirmation } from "./data-client";
@@ -30,6 +32,7 @@ const dataKey = (s: Session) =>
   `waiter-data:${s.user.restaurantId}:${s.user.id}`;
 const empty = (): Saved => ({ drafts: {}, orderNotes: {}, batches: [] });
 export function WaiterApp({ slug }: { slug: string }) {
+  const submitting = useRef(false);
   const [session, setSession] = useState<Session | null>(null),
     [saved, setSaved] = useState<Saved>(empty),
     [ready, setReady] = useState(false);
@@ -65,7 +68,7 @@ export function WaiterApp({ slug }: { slug: string }) {
   const revealSequence = useRef(0);
   const savedRef = useRef(saved),
     sessionRef = useRef(session);
-  function store(next: Saved) {
+  function store(next: Saved, durablyAccepted = false) {
     const current = sessionRef.current;
     if (!current) return;
     try {
@@ -73,6 +76,11 @@ export function WaiterApp({ slug }: { slug: string }) {
       savedRef.current = next;
       setSaved(next);
     } catch {
+      if (durablyAccepted) {
+        savedRef.current = next;
+        setSaved(next);
+        return;
+      }
       setMessage("تعذر الحفظ على الجوال. وفّر مساحة تخزين ثم أعد المحاولة.");
       throw new Error("storage unavailable");
     }
@@ -169,16 +177,30 @@ export function WaiterApp({ slug }: { slug: string }) {
     setRefreshing(true);
     setRefreshError("");
     try {
-      const state = await client.refresh(s);
+      const state = await client.refresh(s, savedRef.current.data);
       if (isCurrent(s)) store({ ...savedRef.current, data: state, lastRefreshAt: new Date().toISOString() });
     } catch (error) {
       if (isCurrent(s)) setRefreshError("تعذر تحديث الطاولات. البيانات السابقة محفوظة؛ تحقق من الاتصال وأعد المحاولة.");
       sessionFailure(s, error);
     } finally { if (isCurrent(s)) setRefreshing(false); }
   }
-  async function sync() {
+  async function sync(force = true) {
     const s = sessionRef.current;
     if (!s) return;
+    const owner = waiterOwner(s.user.restaurantId, s.user.id);
+    await migrateBatches(owner, savedRef.current.batches);
+    const restored = await restoreBatches(owner);
+    if (!isCurrent(s)) return;
+    const merged = new Map(savedRef.current.batches.map(batch => [batch.operationId, batch]));
+    const drafts = { ...savedRef.current.drafts };
+    const orderNotes = { ...savedRef.current.orderNotes };
+    for (const batch of restored) {
+      if (merged.has(batch.operationId) || !batch.draftLineIds) continue;
+      drafts[batch.tableId] = (drafts[batch.tableId] || []).filter(line => !batch.draftLineIds!.includes(line.localId));
+      if ((orderNotes[batch.tableId] || "").trim() === (batch.orderNote || "")) orderNotes[batch.tableId] = "";
+    }
+    for (const batch of restored) merged.set(batch.operationId, batch);
+    store({ ...savedRef.current, drafts, orderNotes, batches: [...merged.values()] }, true);
     await sender.send(s, {
       pending: () => savedRef.current.batches,
       current: () => isCurrent(s),
@@ -202,7 +224,7 @@ export function WaiterApp({ slug }: { slug: string }) {
         logout();
         setMessage("انتهت الجلسة أو عُطل الحساب. سجّل الدخول مجدداً؛ الدفعات محفوظة.");
       },
-    });
+    }, force);
   }
   useEffect(() => {
     setOnline(navigator.onLine);
@@ -218,6 +240,12 @@ export function WaiterApp({ slug }: { slug: string }) {
     const disconnect = () => setOnline(false);
     const reconnect = () => { setOnline(true); void sync(); };
     const unbind = bindSubmissionRecovery(window, reconnect);
+    const disconnectRealtime = connectRealtime(s.token, s.user.restaurantId, async () => {
+      if (!isCurrent(s)) return;
+      await refreshTables(s);
+      await sync(false);
+    });
+    const retry = window.setInterval(() => { if (navigator.onLine) void sync(false).catch(() => {}); }, 30000);
     window.addEventListener("offline", disconnect);
     const expiresAt = tokenExpirationMs(s.token);
     const expiry = expiresAt ? window.setTimeout(() => {
@@ -228,6 +256,8 @@ export function WaiterApp({ slug }: { slug: string }) {
     }, Math.max(0, expiresAt - Date.now())) : undefined;
     return () => {
       unbind();
+      disconnectRealtime();
+      window.clearInterval(retry);
       window.removeEventListener("offline", disconnect);
       if (expiry !== undefined) window.clearTimeout(expiry);
     };
@@ -255,6 +285,7 @@ export function WaiterApp({ slug }: { slug: string }) {
     order = data?.orders.find((o) => o.id === table?.currentOrderId),
     draft = saved.drafts[tableId] || [];
   function change(lines: DraftLine[]) {
+    if (submitting.current) return;
     try {
       store({
         ...savedRef.current,
@@ -317,6 +348,7 @@ export function WaiterApp({ slug }: { slug: string }) {
     }
   }
   function changeOrderNote(note: string) {
+    if (submitting.current) return;
     try {
       store({
         ...savedRef.current,
@@ -324,9 +356,11 @@ export function WaiterApp({ slug }: { slug: string }) {
       });
     } catch {}
   }
-  function submit() {
+  async function submit() {
+    if (submitting.current) return;
     const currentDraft = savedRef.current.drafts[tableId] || [];
     if (!currentDraft.length || !table) return;
+    submitting.current = true;
     try {
       const items = draftToOrderLines(currentDraft);
       const orderNote = (savedRef.current.orderNotes[tableId] || "").trim();
@@ -342,17 +376,25 @@ export function WaiterApp({ slug }: { slug: string }) {
             orderId: table.currentOrderId || "",
             createdAt: new Date().toISOString(),
             items,
+            draftLineIds: currentDraft.map(line => line.localId),
             ...(orderNote ? { orderNote } : {}),
             status: "pending" as const,
           },
         ],
       };
-      store(next);
+      const s = sessionRef.current;
+      if (!s) return;
+      await persistBatch(waiterOwner(s.user.restaurantId, s.user.id), next.batches[next.batches.length - 1]);
+      if (!isCurrent(s)) return;
+      store({ ...savedRef.current,
+        drafts: { ...savedRef.current.drafts, [tableId]: savedRef.current.drafts[tableId] === currentDraft ? [] : savedRef.current.drafts[tableId] },
+        orderNotes: { ...savedRef.current.orderNotes, [tableId]: (savedRef.current.orderNotes[tableId] || "").trim() === orderNote ? "" : savedRef.current.orderNotes[tableId] },
+        batches: [...savedRef.current.batches, next.batches[next.batches.length - 1]] }, true);
       setMessage("حُفظت الدفعة؛ بانتظار تأكيد الخادم");
       void sync();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "تعذر إرسال الطلب");
-    }
+    } finally { submitting.current = false; }
   }
   const button =
     "min-h-12 rounded-xl border border-app-border bg-app-surface px-4 py-3 font-semibold disabled:opacity-50";

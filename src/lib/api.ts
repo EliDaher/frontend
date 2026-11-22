@@ -12,18 +12,29 @@ const backgroundRequestTimeoutMs = 7_000;
 
 async function fetchJson<T>(path: string, init?: RequestInit, timeoutMs = requestTimeoutMs): Promise<T> {
   const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (init?.signal?.aborted) abort();
+  init?.signal?.addEventListener("abort", abort, { once: true });
   const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
 
-  let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
       ...init,
-      signal: init?.signal ?? controller.signal,
+      signal: controller.signal,
       headers: {
         "Content-Type": "application/json",
         ...init?.headers
       }
     });
+    const payload = await response.json().catch(error => {
+      if (controller.signal.aborted || init?.signal?.aborted) throw error;
+      return null;
+    });
+    if (!response.ok) {
+      throw new ApiError(payload?.error?.message ?? "حدث خطأ أثناء الاتصال بالخادم", response.status, payload?.error?.code);
+    }
+    if (!payload || typeof payload !== "object" || !("data" in payload)) throw new Error("Missing server confirmation");
+    return (payload as ApiEnvelope<T>).data;
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
       throw new Error("انتهت مهلة الاتصال بالخادم. ستتم إعادة المحاولة.");
@@ -31,18 +42,9 @@ async function fetchJson<T>(path: string, init?: RequestInit, timeoutMs = reques
     throw error;
   } finally {
     globalThis.clearTimeout(timeout);
+    init?.signal?.removeEventListener("abort", abort);
   }
 
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new ApiError(
-      payload?.error?.message ?? "حدث خطأ أثناء الاتصال بالخادم",
-      response.status,
-      payload?.error?.code
-    );
-  }
-
-  return (payload as ApiEnvelope<T>).data;
 }
 
 export function getRestaurant(slug: string) {

@@ -205,7 +205,8 @@ test("submission waits for an in-flight snapshot; replay after closure removes o
 
 test("waiter component wires explicit initialization/refresh, token expiry cleanup, and no data polling/focus hooks", async () => {
   const source = await readFile(new URL("../src/components/waiter/WaiterApp.tsx", import.meta.url), "utf8");
-  assert.doesNotMatch(source, /setInterval|addEventListener\("focus"|addEventListener\("visibilitychange"|\/api\/waiter\/bootstrap/);
+  assert.doesNotMatch(source, /addEventListener\("focus"|addEventListener\("visibilitychange"|\/api\/waiter\/bootstrap/);
+  assert.match(source, /connectRealtime/);
   assert.match(source, /تحديث الطاولات/);
   assert.match(source, /إعادة إرسال الدفعات/);
   assert.match(source, /tokenExpirationMs/);
@@ -213,4 +214,17 @@ test("waiter component wires explicit initialization/refresh, token expiry clean
   assert.match(source, /initializedSession\.current !== s\.cacheSessionId/);
   const senderSource = await readFile(new URL("../src/components/waiter/submission.ts", import.meta.url), "utf8");
   assert.doesNotMatch(senderSource, /\/api\/waiter\/(?:menu|state|bootstrap)|setInterval|setTimeout/);
+});
+
+test("incremental waiter reconciliation recovers missed events, pages changes and preserves its cursor through confirmations", async () => {
+  const paths = [];
+  const client = new WaiterDataClient(waiterMenuCache, async path => {
+    paths.push(path);
+    if (path.endsWith("cursor=4")) return { cursor: 6, hasMore: true, updates: [{ entityType: "order", entityId: "old", data: null }] };
+    return { cursor: 7, hasMore: false, updates: [{ entityType: "order", entityId: "o", data: confirmed.order }, { entityType: "table", entityId: "t", data: confirmed.table }] };
+  });
+  const result = await client.refresh(session(), { ...state, cursor: 4, orders: [{ ...confirmed.order, id: "old" }] });
+  assert.equal(result.cursor, 7); assert.deepEqual(result.orders, [confirmed.order]);
+  assert.deepEqual(paths, ["/api/waiter/changes?cursor=4", "/api/waiter/changes?cursor=6"]);
+  assert.equal(applyConfirmation(result, "t", confirmed).cursor, 7);
 });

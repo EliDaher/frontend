@@ -37,6 +37,21 @@ export async function queueOperation(input: QueueOperationInput) {
   const now = new Date().toISOString();
   const deviceId = await getDeviceId();
   const existingDependencies = await unsyncedDependenciesFor(input);
+  // Only replace patches that have NEVER been transmitted. A timed-out request
+  // may already be committed, so its immutable idempotency payload must survive.
+  if (input.entityType === "order" && input.action === "update") {
+    const all = await offlineDb.syncQueue.where("tenantId").equals(input.tenantId).toArray();
+    const prior = all.filter(item => item.entityType === "order" && item.entityId === input.entityId && item.status !== "synced")
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt)).at(-1);
+    if (prior?.action === "update" && prior.status === "pending" && prior.retryCount === 0 && !prior.lastAttemptAt &&
+      !(input.dependencyIds ?? []).includes(prior.operationId) &&
+      !all.some(item => item.dependencyIds.includes(prior.operationId))) {
+      const merged = { ...prior, payload: { ...prior.payload, ...input.payload }, dependencyIds: [...new Set([...prior.dependencyIds, ...(input.dependencyIds ?? []), ...existingDependencies.filter(id => id !== prior.operationId)])] };
+      await offlineDb.syncQueue.put(merged);
+      notifySyncStatusChanged();
+      return merged;
+    }
+  }
   const item: SyncQueueItem = {
     operationId: createOperationId(),
     entityType: input.entityType,
@@ -92,10 +107,11 @@ export async function syncQueueSummary(tenantId?: string) {
   return {
     pending: items.filter((item) => item.status === "pending").length,
     syncing: recentSyncing,
-    failed: items.filter((item) => item.status === "failed").length,
+    failed: items.filter((item) => item.status === "failed" && item.error?.retryable === false).length,
     conflict: items.filter((item) => item.status === "conflict").length,
     totalWaiting: items.filter((item) => ["pending", "failed", "conflict"].includes(item.status)).length,
     issues,
+    reconcilingBusinessDay: tenantId ? Boolean((await offlineDb.syncMetadata.get(tenantMetadataKey(tenantId)))?.reconcilingBusinessDay) && syncInProgress : false,
     syncInProgress
   };
 }
@@ -129,6 +145,8 @@ export async function retryFailedOperations(tenantId?: string) {
 }
 
 export async function recoverStaleSyncingOperations(tenantId: string, force = false) {
+  // A healthy worker can spend longer than the stale threshold on a batch.
+  if (await activeSyncLease(tenantId)) return 0;
   const items = await offlineDb.syncQueue
     .where("[tenantId+status]")
     .equals([tenantId, "syncing"])
@@ -164,11 +182,22 @@ export function nextRetryTime(retryCount: number) {
 }
 
 async function unsyncedDependenciesFor(input: QueueOperationInput) {
+  const parents = new Map<SyncEntityType, Set<string>>();
+  const addParent = (type: SyncEntityType, id: unknown) => {
+    if (typeof id !== "string" || !id) return;
+    const ids = parents.get(type) ?? new Set<string>(); ids.add(id); parents.set(type, ids);
+  };
+  addParent("table", input.payload.tableId);
+  addParent("invoice", input.payload.invoiceId);
+  addParent("expense", input.payload.expenseId);
+  addParent("inventoryItem", input.payload.inventoryItemId);
+  addParent("supplier", input.payload.supplierId);
+  addParent("cashRegister", input.payload.cashRegisterId);
+  if (Array.isArray(input.payload.payments)) for (const row of input.payload.payments) addParent("cashRegister", (row as { cashRegisterId?: unknown }).cashRegisterId);
   const existing = await offlineDb.syncQueue
-    .where("[tenantId+entityType+entityId]")
-    .equals([input.tenantId, input.entityType, input.entityId])
+    .where("tenantId").equals(input.tenantId)
     .filter((item) => {
-      return item.status !== "synced";
+      return item.status !== "synced" && ((item.entityType === input.entityType && item.entityId === input.entityId) || parents.get(item.entityType)?.has(item.entityId) === true);
     })
     .toArray();
   return existing.map((item) => item.operationId);

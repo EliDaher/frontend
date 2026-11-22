@@ -16,6 +16,7 @@ import {
   cn
 } from "@/components/shared";
 import { adminRequest } from "@/lib/api";
+import { createLocalInventoryMovement } from "@/offline/repositories/inventory";
 import { formatInteger } from "@/lib/format";
 import { useLiveQuery } from "@/offline/hooks/useLiveQuery";
 import type { PendingInventoryEffects } from "@/offline/inventory-cache-rules";
@@ -121,7 +122,8 @@ export function InventoryOpsPage() {
   async function addMovement(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await run(state, async () => {
-      await adminRequest("/api/owner/ops/inventory/transactions", state.token, { method: "POST", body: JSON.stringify({ ...move, referenceType: "MANUAL", referenceId: "manual" }) });
+      if (!offlineContext) return;
+      await createLocalInventoryMovement(offlineContext, { ...move, referenceType: "MANUAL", referenceId: "manual" });
       setMove({ ...move, quantity: 0, reason: "" });
       await refreshInventoryData();
     });

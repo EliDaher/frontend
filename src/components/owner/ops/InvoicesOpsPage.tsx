@@ -20,6 +20,7 @@ import {
 } from "@/components/shared";
 import { hydrateFinancialHistory, listLocalCashRegisters } from "@/offline/repositories/financial-history";
 import { adminRequest } from "@/lib/api";
+import { createLocalInvoice } from "@/offline/repositories/invoices";
 import { formatInteger } from "@/lib/format";
 import { useLiveQuery } from "@/offline/hooks/useLiveQuery";
 import { hydrateInvoices, hydrateInvoiceSuppliers, listLocalInvoices, listLocalSuppliers, refreshInvoices, refreshInvoiceSuppliers } from "@/offline/repositories/invoices";
@@ -89,8 +90,8 @@ export function InvoicesOpsPage() {
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const body = {
-      type: form.type,
-      status: form.status,
+      type: form.type as InvoiceType,
+      status: form.status as InvoiceStatus,
       orderId: form.orderId,
       supplierId: form.supplierId,
       items: [{ itemId: "", name: form.itemName, quantity: form.quantity, unitPrice: form.unitPrice }],
@@ -99,12 +100,13 @@ export function InvoicesOpsPage() {
       serviceCharge: form.serviceCharge,
       ...(!editingId ? { settlementMode: paymentDraft.settlementMode, payments: paymentDraft.payments } : {}),
       paidAmount: form.paidAmount,
-      paymentMethod: form.paymentMethod,
+      paymentMethod: form.paymentMethod as PaymentMethod,
       dueDate: form.dueDate,
       notes: form.notes
     };
     await run(state, async () => {
-      await adminRequest(editingId ? `/api/owner/ops/invoices/${editingId}` : "/api/owner/ops/invoices", state.token, { method: editingId ? "PATCH" : "POST", body: JSON.stringify(body) });
+      if (editingId) await adminRequest(`/api/owner/ops/invoices/${editingId}`, state.token, { method: "PATCH", body: JSON.stringify(body) });
+      else if (offlineContext) await createLocalInvoice(offlineContext, body);
       setEditingId("");
       setForm(emptyInvoiceForm());
       setFormOpen(false);

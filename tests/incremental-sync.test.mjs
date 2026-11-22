@@ -74,6 +74,14 @@ test("interrupted bootstrap resumes its page checkpoint and keeps pending record
   assert.equal((await offlineDb.orders.get("0000")).name, "local pending");
   assert.equal((await offlineDb.syncMetadata.get(tenantMetadataKey("r"))).bootstrap.complete, true);
 });
+test("bootstrap cannot downgrade or tombstone a newer cached order", async () => {
+  store.set(orderRef("o").path, { restaurantId: "r", name: "server old", version: 1 });
+  await offlineDb.orders.put({ id: "o", restaurantId: "r", name: "local newer", syncStatus: "synced", version: 3 });
+  await startSync("r", "session");
+  const order = await offlineDb.orders.get("o");
+  assert.equal(order.name, "local newer");
+  assert.equal(order.deletedAt, undefined);
+});
 test("drains 501 changes and preserves an unresolved conflict", async () => {
   await startSync("r", "session");
   for (let i = 1; i <= 501; i++) {

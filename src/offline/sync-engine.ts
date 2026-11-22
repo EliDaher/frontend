@@ -1,3 +1,5 @@
+import { businessDay } from "@/lib/business-day";
+import { reconcileBusinessDay } from "./business-day-reconciliation";
 import { adminRequest } from "@/lib/api";
 import { shouldProtectHydratedRecord } from "./hydration";
 import { syncPull, syncPush } from "@/lib/api";
@@ -28,7 +30,10 @@ function getChannel() {
 export function startSync(tenantId: string, token: string): Promise<void> {
   const existing = cycles.get(tenantId);
   if (existing) { requestedWhileRunning.add(tenantId); return existing; }
-  const cycle = runSync(tenantId, token).finally(() => { if (cycles.get(tenantId) === cycle) cycles.delete(tenantId); });
+  const work = typeof navigator !== "undefined" && navigator.locks
+    ? navigator.locks.request(`restaurant-sync:${tenantId}`, { ifAvailable: true }, async lock => { if (lock) await runSync(tenantId, token); }).then(() => {})
+    : runSync(tenantId, token);
+  const cycle = work.finally(() => { if (cycles.get(tenantId) === cycle) cycles.delete(tenantId); });
   cycles.set(tenantId, cycle);
   return cycle;
 }
@@ -52,10 +57,11 @@ async function runSync(tenantId: string, token: string) {
   }
   const retryMetadata = await offlineDb.syncMetadata.get(tenantMetadataKey(tenantId));
   if ((retryMetadata?.quotaRetryAt ?? 0) > Date.now()) { scheduleQuotaRetry(tenantId, token, retryMetadata!.quotaRetryAt!); return; }
+  const leaseOwnerId = `${await getDeviceId()}:${crypto.randomUUID()}`;
   running.add(tenantId);
   let leaseAcquired = false;
   const startedAt = performanceNow();
-  const leaseOwnerId = await getDeviceId();
+  const heartbeat = setInterval(() => { void refreshSyncLease(tenantId, leaseOwnerId).catch(() => {}); }, 15000);
   let pushedOperations = 0;
   let pulledChanges = 0;
   try {
@@ -66,6 +72,8 @@ async function runSync(tenantId: string, token: string) {
     await resumeAuthenticationFailures(tenantId);
     leaseAcquired = await acquireSyncLease(tenantId, leaseOwnerId);
     if (!leaseAcquired) return;
+    await reconcileBusinessDay(tenantId, token, bootstrapEntities.map(entity => [entity, tableForEntity(entity)!] as const));
+    await recoverAgingOperations(tenantId, token);
 
     getChannel()?.postMessage({ type: "sync-started", tenantId });
     notifySyncStatusChanged();
@@ -81,6 +89,11 @@ async function runSync(tenantId: string, token: string) {
     await refreshSyncLease(tenantId, leaseOwnerId);
     try {
       pulledChanges = await pullServerChanges(tenantId, token);
+      const restaurantSettings = await offlineDb.restaurants.get(tenantId);
+      const completedMetadata = await offlineDb.syncMetadata.get(tenantMetadataKey(tenantId));
+      if (restaurantSettings && !completedMetadata?.reconciledBusinessDay) {
+        await offlineDb.syncMetadata.update(tenantMetadataKey(tenantId), { reconciledBusinessDay: businessDay(new Date(), restaurantSettings) });
+      }
       await offlineDb.syncMetadata.update(tenantMetadataKey(tenantId), { quotaRetryAt: undefined, quotaRetryCount: 0 });
       const retry = quotaTimers.get(tenantId);
       if (retry) clearTimeout(retry);
@@ -93,14 +106,20 @@ async function runSync(tenantId: string, token: string) {
       throw error;
     }
   } catch (error) {
+    if (isAuthError(error)) {
+      await pauseAuthenticationFailures(tenantId, error instanceof Error ? error.message : "Invalid or expired token");
+      return;
+    }
     if (isQuotaFailure(error)) await deferQuota(tenantId, token);
     throw error;
   } finally {
-    if (leaseAcquired) await releaseSyncLease(tenantId, leaseOwnerId);
+    clearInterval(heartbeat);
+    if (leaseAcquired) await releaseSyncLease(tenantId, leaseOwnerId).catch(() => {});
     running.delete(tenantId);
     getChannel()?.postMessage({ type: "sync-finished", tenantId });
     logSyncCycle(startedAt, pushedOperations, pulledChanges);
     notifySyncStatusChanged();
+    if (typeof window !== "undefined") void schedulePendingRetry(tenantId, token).catch(() => {});
     // Defer until the single-flight promise has been released.
     if (requestedWhileRunning.delete(tenantId)) setTimeout(() => { void runRequestedFollowUpSync(tenantId, token).catch(() => {}); }, 0);
   }
@@ -108,10 +127,7 @@ async function runSync(tenantId: string, token: string) {
 
 async function runRequestedFollowUpSync(tenantId: string, token: string) {
   if (inspectToken(token).expired) return;
-  const dueOperations = await pendingOperations(tenantId, 1);
-  if (dueOperations.length) {
-    await startSync(tenantId, token);
-  }
+  await startSync(tenantId, token);
 }
 
 async function acquireSyncLease(tenantId: string, leaseOwnerId: string) {
@@ -141,6 +157,7 @@ async function acquireSyncLease(tenantId: string, leaseOwnerId: string) {
 
 async function refreshSyncLease(tenantId: string, leaseOwnerId: string) {
   const key = tenantMetadataKey(tenantId);
+  await offlineDb.transaction("rw", offlineDb.syncMetadata, async () => {
   const current = await offlineDb.syncMetadata.get(key);
   if (!current || current.syncLeaseOwnerId !== leaseOwnerId) return;
   await offlineDb.syncMetadata.put({
@@ -148,34 +165,42 @@ async function refreshSyncLease(tenantId: string, leaseOwnerId: string) {
     syncInProgress: true,
     syncLeaseUntil: new Date(Date.now() + syncLeaseMs).toISOString()
   });
+  });
 }
 
 async function releaseSyncLease(tenantId: string, leaseOwnerId: string) {
   const key = tenantMetadataKey(tenantId);
+  await offlineDb.transaction("rw", offlineDb.syncMetadata, async () => {
   const current = await offlineDb.syncMetadata.get(key);
   if (!current) return;
   if (current.syncLeaseOwnerId && current.syncLeaseOwnerId !== leaseOwnerId) return;
   await offlineDb.syncMetadata.put({
     ...current,
     syncInProgress: false,
+    reconcilingBusinessDay: false,
     syncLeaseUntil: undefined,
     syncLeaseOwnerId: undefined,
-    lastSyncedAt: new Date().toISOString()
+    lastSyncedAt: current.lastSyncedAt
+  });
   });
 }
 
 async function pushPendingOperations(tenantId: string, token: string) {
-  const operations = await pendingOperations(tenantId);
+  const operations = await offlineDb.transaction("rw", offlineDb.syncQueue, offlineDb.syncMetadata, async () => {
+    const candidates = await pendingOperations(tenantId);
+    const pending = candidates.filter(operation => operation.deviceId === candidates[0]?.deviceId);
+    const now = new Date().toISOString();
+    await offlineDb.syncQueue.bulkPut(pending.map(operation => ({ ...operation, status: "syncing", lastAttemptAt: now })));
+    return pending;
+  });
   if (!operations.length) return 0;
 
-  const now = new Date().toISOString();
-  await offlineDb.syncQueue.bulkPut(operations.map((operation) => ({ ...operation, status: "syncing", lastAttemptAt: now })));
   await markCompletionOperationsStatus(operations, "syncing");
   await markExpenseOperationsStatus(operations, "syncing");
   await markCashMovementOperationsStatus(operations, "syncing");
   notifySyncStatusChanged();
 
-  const deviceId = await getDeviceId();
+  const deviceId = operations[0].deviceId;
   const requestOperations: PushOperation[] = operations.map((operation) => ({
     operationId: operation.operationId,
     entityType: operation.entityType,
@@ -349,6 +374,21 @@ async function applyPushResults(operations: SyncQueueItem[], results: PushResult
 }
 
 async function markEntitySynced(operation: SyncQueueItem, result: PushResult, now: string) {
+  if (operation.entityType === "invoice") {
+    const invoice = await offlineDb.invoices.get(operation.entityId);
+    if (invoice) await offlineDb.invoices.put({ ...invoice, syncStatus: "synced", lastSyncedAt: now });
+    return;
+  }
+  if (operation.entityType === "inventoryTransaction") {
+    const movement = await offlineDb.inventoryTransactions.get(operation.entityId);
+    if (movement) await offlineDb.inventoryTransactions.put({ ...movement, ...(result.response ?? {}), syncStatus: "synced", version: result.serverVersion, lastSyncedAt: now });
+    const itemId = String(operation.payload.inventoryItemId ?? "");
+    const remaining = await offlineDb.syncQueue.where("tenantId").equals(operation.tenantId)
+      .filter(item => item.operationId !== operation.operationId && item.status !== "synced" && item.entityType === "inventoryTransaction" && item.payload.inventoryItemId === itemId).count();
+    const item = await offlineDb.inventoryItems.get(itemId);
+    if (item && !remaining) await offlineDb.inventoryItems.put({ ...item, syncStatus: "synced" });
+    return;
+  }
   if (operation.entityType === "table") {
     const table = await offlineDb.opsTables.get(operation.entityId);
     if (!table) return;
@@ -365,11 +405,14 @@ async function markEntitySynced(operation: SyncQueueItem, result: PushResult, no
     const order = await offlineDb.orders.get(operation.entityId);
     const serverVersion = result.serverVersion ?? order?.version;
     if (!order) return;
+    const newer = await offlineDb.syncQueue.where("[tenantId+entityType+entityId]")
+      .equals([operation.tenantId, "order", operation.entityId])
+      .filter(item => item.operationId !== operation.operationId && item.status !== "synced").count();
     await offlineDb.orders.put({
       ...order,
-      ...(result.response ?? {}),
-      version: serverVersion,
-      syncStatus: "synced",
+      ...(!newer && Number(serverVersion ?? 0) >= Number(order.version ?? 0) ? result.response ?? {} : {}),
+      version: Math.max(Number(serverVersion ?? 0), Number(order.version ?? 0)),
+      syncStatus: newer ? "pending" : "synced",
       lastSyncedAt: now
     });
     await updateDependentOrderBaseVersions(operation, serverVersion);
@@ -543,6 +586,7 @@ async function applyPullChange(tenantId: string, change: PullChange) {
   if (!table) throw new Error(`Unsupported sync entity: ${change.entityType}`);
   const record = await table.get(change.entityId);
   if (await shouldProtectHydratedRecord({ tenantId, entityType: change.entityType, entityId: change.entityId, local: record })) return;
+  if (record && Number((record as { version?: number }).version ?? 0) > change.version) return;
 
   if (change.action === "delete") {
     const current = await table.get(change.entityId) as { syncStatus?: string } | undefined;
@@ -842,6 +886,13 @@ async function reconcileFinancialArtifactStatuses(updated: SyncQueueItem[]) {
           if (movement?.cashRegisterId) registerIds.push(movement.cashRegisterId);
         }
       }
+    } else if (op.entityType === "invoice") {
+      add("invoice", op.entityId, op); add("journalEntry", `invoice_${op.entityId}`, op);
+      if (op.payload.supplierId) add("supplier", String(op.payload.supplierId), op);
+      for (let index = 0; index < (rows?.length ?? (Number(op.payload.paidAmount) > 0 ? 1 : 0)); index++) {
+        const id = `invoice_${op.entityId}_${index}`;
+        add("payment", id, op); add("cashMovement", id, op);
+      }
     } else if (op.entityType === "payment") {
       if (op.payload.expenseId) {
         add("expense", String(op.payload.expenseId), op); add("journalEntry", `expense_${op.entityId}`, op);
@@ -914,6 +965,11 @@ async function ensureBootstrap(tenantId: string, token: string, owner: string) {
       for (const record of page.records) {
         const current = await table.get(record.id);
         if (await shouldProtectHydratedRecord({ tenantId, entityType: entity, entityId: record.id, local: current })) continue;
+        const incomingVersion = Number(record.version) || Date.parse(String(record.updatedAt ?? record.createdAt ?? "")) || 0;
+        if (current && Number((current as { version?: number }).version ?? 0) > incomingVersion) {
+          await table.put({ ...current, bootstrapGeneration: next.generation } as never);
+          continue;
+        }
         await table.put({ ...record, restaurantId: tenantId, syncStatus: "synced", version: Number(record.version) || Date.parse(String(record.updatedAt ?? record.createdAt ?? "")) || 0,
           bootstrapGeneration: next.generation, lastSyncedAt: new Date().toISOString() } as never);
       }
@@ -953,6 +1009,43 @@ async function deferQuota(tenantId: string, token: string) {
   scheduleQuotaRetry(tenantId, token, deadline);
 }
 const quotaTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const pendingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+async function schedulePendingRetry(tenantId: string, token: string) {
+  const previous = pendingTimers.get(tenantId);
+  if (previous) clearTimeout(previous);
+  pendingTimers.delete(tenantId);
+  if (inspectToken(token).expired) return;
+  const items = await offlineDb.syncQueue.where("tenantId").equals(tenantId)
+    .filter(item => item.status === "syncing" || ((item.status === "pending" || item.status === "failed") && item.error?.retryable !== false)).toArray();
+  if (!items.length) return;
+  const deadline = Math.min(...items.map(item => item.nextAttemptAt ? Date.parse(item.nextAttemptAt) : Date.now() + 30000));
+  const timer = setTimeout(() => {
+    pendingTimers.delete(tenantId);
+    void startSync(tenantId, token).catch(() => {});
+  }, Math.max(1000, deadline - Date.now()));
+  pendingTimers.set(tenantId, timer);
+}
+
+async function recoverAgingOperations(tenantId: string, token: string) {
+  const items = await offlineDb.syncQueue.where("tenantId").equals(tenantId)
+    .filter(item => item.status !== "synced" && item.error?.code !== "needs_attention" &&
+      Date.now() - Date.parse(item.createdAt) >= 23 * 3600000 &&
+      (!item.recoveryCheckedAt || Date.now() - Date.parse(item.recoveryCheckedAt) >= 3600000)).toArray();
+  for (const item of items.slice(0, 25)) {
+    const { record } = await adminRequest<{ record: (Record<string, unknown> & { status: string; serverVersion?: number; response?: Record<string, unknown> }) | null }>(`/api/owner/sync/operations/${encodeURIComponent(item.operationId)}`, token, { method: "POST", body: JSON.stringify({ deviceId: item.deviceId, operations: [{ operationId: item.operationId, entityType: item.entityType, entityId: item.entityId, action: item.action, payload: item.payload, baseVersion: item.baseVersion, dependencyIds: item.dependencyIds, clientCreatedAt: item.createdAt }] }) });
+    if (record?.status === "applied" && record.entityId === item.entityId && record.entityType === item.entityType && record.action === item.action && record.deviceId === item.deviceId) {
+      await applyPushResults([item], [{ operationId: item.operationId, entityId: item.entityId, entityType: item.entityType, status: "duplicate", serverVersion: record.serverVersion, response: record.response }]);
+      continue;
+    }
+    const dependencies = await offlineDb.syncQueue.bulkGet(item.dependencyIds);
+    const blocked = dependencies.some(dependency => !dependency || dependency.status === "conflict" || (dependency.status === "failed" && dependency.error?.retryable === false));
+    const permanent = item.status === "conflict" || item.error?.retryable === false;
+    const attention = blocked || permanent || Boolean(item.recoveryCheckedAt && Date.now() - Date.parse(item.createdAt) >= 24 * 3600000);
+    await offlineDb.syncQueue.put({ ...item, recoveryCheckedAt: new Date().toISOString(),
+      status: attention ? "failed" : "pending", nextAttemptAt: undefined,
+      error: attention ? { code: "needs_attention", message: "تعذر الإصلاح الآلي؛ العملية محفوظة وتحتاج مراجعة.", retryable: false } : item.error });
+  }
+}
 function scheduleQuotaRetry(tenantId: string, token: string, deadline: number) {
   const previous = quotaTimers.get(tenantId);
   if (previous) clearTimeout(previous);

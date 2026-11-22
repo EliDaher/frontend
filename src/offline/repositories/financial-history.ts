@@ -367,7 +367,7 @@ export async function settleLocalInvoice(context: OfflineContext, invoiceId: str
     const amount = settlement.paidAmount;
     const lines = direction === "IN" ? [{ accountId: "cash", debit: amount, credit: 0, memo: "تسديد فاتورة" }, { accountId: "accounts_receivable", debit: 0, credit: amount, memo: "تسديد دين" }] : [{ accountId: invoice.type === "PURCHASE" ? "accounts_payable" : "sales_returns", debit: amount, credit: 0, memo: "تسديد فاتورة" }, { accountId: "cash", debit: 0, credit: amount, memo: "تسديد فاتورة" }];
     await offlineDb.journalEntries.put({ id, restaurantId: context.tenantId, status: "POSTED", referenceType: "PAYMENT", referenceId: id, lines, memo: input.note, postedAt: now, createdAt: now, syncStatus: "pending" });
-    const dependencies = await offlineDb.syncQueue.where("tenantId").equals(context.tenantId).filter(op => op.status !== "synced" && ((op.entityType === "order" && op.entityId === invoice.orderId) || (op.entityType === "payment" && op.payload.invoiceId === invoiceId))).toArray();
+    const dependencies = await offlineDb.syncQueue.where("tenantId").equals(context.tenantId).filter(op => op.status !== "synced" && ((op.entityType === "invoice" && op.entityId === invoiceId) || (op.entityType === "order" && op.entityId === invoice.orderId) || (op.entityType === "payment" && op.payload.invoiceId === invoiceId))).toArray();
     await queueOperation({ entityType: "payment", entityId: id, action: "create", payload: { ...input, invoiceId }, tenantId: context.tenantId, userId: context.userId, dependencyIds: dependencies.map(op => op.operationId) });
   });
   void startSync(context.tenantId, context.token);

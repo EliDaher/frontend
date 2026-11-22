@@ -69,7 +69,7 @@ export function SyncStatusIndicator({ tenantId, token }: { tenantId?: string; to
           aria-label="تفاصيل فشل المزامنة"
         >
           <AlertTriangle className="h-4 w-4" />
-          {failed} فشل
+          {failed} تحتاج مراجعة
         </button>
         {open ? (
           <div
@@ -80,7 +80,7 @@ export function SyncStatusIndicator({ tenantId, token }: { tenantId?: string; to
           >
             <div className="flex items-center justify-between gap-3 border-b border-app-border pb-2">
               <div>
-                <p className="text-sm font-semibold text-app-ink">عمليات لم تُحفظ</p>
+                <p className="text-sm font-semibold text-app-ink">عمليات محفوظة محلياً وتحتاج مراجعة</p>
                 <p className="mt-0.5 text-app-helper text-app-muted">راجع السبب ثم أعد المحاولة عند الإمكان.</p>
               </div>
               <button

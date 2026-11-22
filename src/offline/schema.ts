@@ -101,12 +101,15 @@ export type SyncQueueItem = {
   dependencyIds: string[];
   lastAttemptAt?: string;
   serverResponse?: Record<string, unknown>;
+  recoveryCheckedAt?: string;
 };
 
 export type SyncMetadata = {
   key: string;
   tenantId: string;
   lastPullCursor: number;
+  reconciledBusinessDay?: string;
+  reconcilingBusinessDay?: boolean;
   lastSyncedAt?: string;
   syncInProgress?: boolean;
   syncLeaseUntil?: string;

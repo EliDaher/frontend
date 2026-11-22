@@ -42,8 +42,13 @@ export function WaiterBatchHistory({ token, orderId }: {
             finally { busy = false; }
         };
         void load();
-        const timer = setInterval(() => void load(), 15_000);
-        return () => { active = false; clearInterval(timer); };
+        const changed = (event: Event) => {
+            const detail = (event as CustomEvent<{ changes?: Array<{ entityType: string; entityId: string }> }>).detail;
+            if (detail?.changes?.some(change => change.entityType === "order" && change.entityId === orderId)) void load();
+        };
+        const timer = setInterval(() => void load(), 120_000);
+        window.addEventListener("restaurant-remote-changes", changed);
+        return () => { active = false; clearInterval(timer); window.removeEventListener("restaurant-remote-changes", changed); };
     }, [token, orderId]);
     if (!orderId || (!rows.length && !error))
     return null; return <details className="my-3 rounded-xl border bg-app-surface p-3"><summary className="cursor-pointer py-2 font-bold">سجل إضافات النوّادل ({rows.length})</summary>{error && <p role="alert">{error}</p>}{rows.map(b => <article key={b.operationId} className="border-b py-3"><p className="font-semibold">{b.waiterName}</p><p className="text-sm">أُنشئت: {new Date(b.createdAt).toLocaleString("ar")} · اعتُمدت: {new Date(b.acceptedAt).toLocaleString("ar")}</p>{b.orderNote && <p className="whitespace-pre-wrap break-words rounded-lg bg-app-primary-soft p-2">ملاحظة للطلب: {b.orderNote}</p>}{b.items.map((i, n) => <p key={n}>{i.quantity} × {i.name}{i.notes && ` · ${i.notes}`}</p>)}</article>)}</details>; }

@@ -20,6 +20,7 @@ const { startSync: synchronize } = await import("../src/offline/sync-engine.ts?l
 const { offlineDb } = await import("../src/offline/db.ts");
 const { completeLocalOrder, cancelLocalOrder } = await import("../src/offline/repositories/orders.ts");
 const { createLocalExpense, createLocalCashMovement, settleLocalInvoice, settleLocalExpense } = await import("../src/offline/repositories/financial-history.ts");
+const { createLocalInvoice } = await import("../src/offline/repositories/invoices.ts");
 const context = { tenantId: "r", userId: "owner", token: "test" };
 const row = (originalAmount, currency = "SYP", method = "CASH", exchangeRate = 10000) => ({ originalAmount, currency, method, exchangeRate, cashRegisterId: "cash" });
 beforeEach(async () => {
@@ -30,6 +31,28 @@ beforeEach(async () => {
 });
 after(() => offlineDb.close());
 describe("offline financial transactions", () => {
+  it("persists a purchase invoice and dependent settlement offline, then commits each effect once", async () => {
+    serverStore.clear();
+    serverStore.set("restaurants/r", { currency: "SYP", usdExchangeRate: 10000 });
+    serverStore.set("restaurants/r/cashRegisters/cash", { restaurantId: "r", currentBalance: 0, isOpen: true });
+    serverStore.set("restaurants/r/suppliers/s", { restaurantId: "r", balance: 0 });
+    await offlineDb.suppliers.put({ id: "s", restaurantId: "r", balance: 0, name: "supplier" });
+    const id = await createLocalInvoice(context, { type: "PURCHASE", status: "UNPAID", orderId: "", supplierId: "s", items: [{ itemId: "", name: "stock", quantity: 1, unitPrice: 1000 }], discount: 0, tax: 0, serviceCharge: 0, paidAmount: 0, paymentMethod: "CASH", dueDate: "", notes: "", settlementMode: "PARTIAL", payments: [row(300)] });
+    await settleLocalInvoice(context, id, { settlementMode: "FULL", payments: [row(700)], note: "" });
+    const operations = await offlineDb.syncQueue.toArray();
+    assert.ok(operations.find(op => op.entityType === "payment").dependencyIds.includes(operations.find(op => op.entityType === "invoice").operationId));
+    assert.equal((await offlineDb.cashRegisters.get("cash")).currentBalance, -1000);
+    offlineDb.close(); await offlineDb.open();
+    Object.defineProperty(globalThis.navigator, "onLine", { value: true, configurable: true });
+    await synchronize("r", "test");
+    assert.ok((await offlineDb.syncQueue.toArray()).every(op => op.status === "synced"));
+    assert.equal(serverStore.get("restaurants/r/cashRegisters/cash").currentBalance, -1000);
+    assert.equal(serverStore.get("restaurants/r/suppliers/s").balance, 0);
+    assert.equal((await offlineDb.invoices.get(id)).status, "PAID");
+    const retry = await serverPush("r", { id: "owner", role: "OWNER", email: "test@example.test", permissions: [] }, operations[0].deviceId, operations.map(op => ({ ...op, clientCreatedAt: op.createdAt })));
+    assert.ok(retry.results.every(result => ["applied", "duplicate"].includes(result.status)));
+    assert.equal(serverStore.get("restaurants/r/cashRegisters/cash").currentBalance, -1000);
+  });
   it("stores mixed checkout and dependent settlements atomically without a network", async () => {
     const input = { paymentMethod: "CASH", paidAmount: 0, settlementMode: "PARTIAL", payments: [row(300), row(.02, "USD", "SHAM_CASH")], note: "" };
     await completeLocalOrder(context, "o", input);
