@@ -24,12 +24,14 @@ import { money, orderStatusLabels, OpsShell, paymentAmountForMethod, useOpsPage 
 import { OrderReceiptPrintButton } from "./OrderReceiptPrintButton";
 import { formatActionError, option, orderTypes, paymentMethods, tableStatuses } from "./OpsPageShared";
 import { addOrMergeOrderLine, lineItemsQuantity, lineItemsTotal, mergeOrderLines, updateLineQuantity } from "./table-details-line-merge";
+import { isValidPricedLine, withLineTotal, withQuantity, withUnitPrice } from "./order-line-pricing";
 
 type OrderEditLine = {
   menuItemId: string;
   name: string;
   quantity: number;
   unitPrice: number;
+  total: number;
   notes: string;
   modifiers: string[];
 };
@@ -53,6 +55,7 @@ type StartCartLine = {
   name: string;
   quantity: number;
   unitPrice: number;
+  total: number;
   notes: string;
   modifiers: string[];
 };
@@ -138,10 +141,10 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
     return tables.filter((entry) => entry.id !== currentOrderTableId && entry.status !== "DISABLED" && !entry.currentOrderId);
   }, [currentOrderTableId, tables]);
   const previewTotal = useMemo(() => {
-    const subTotal = lines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
+    const subTotal = lines.reduce((sum, line) => sum + line.total, 0);
     return Math.max(subTotal - orderForm.discount + orderForm.tax + orderForm.serviceCharge, 0);
   }, [lines, orderForm.discount, orderForm.tax, orderForm.serviceCharge]);
-  const startCartSubTotal = startCart.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
+  const startCartSubTotal = startCart.reduce((sum, line) => sum + line.total, 0);
   const startCartQuantity = lineItemsQuantity(startCart);
   const startCartQuantities = useMemo(() => {
     return startCart.reduce<Record<string, number>>((result, line) => {
@@ -290,6 +293,7 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
       name: line.name,
       quantity: line.quantity,
       unitPrice: line.unitPrice,
+      total: Number.isFinite(line.total) ? line.total : line.unitPrice * line.quantity,
       notes: line.notes || "",
       modifiers: line.modifiers || []
     })));
@@ -384,6 +388,10 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
       state.setMessage("أضف صنفًا واحدًا على الأقل إلى الطلب.");
       return;
     }
+    if (!startCart.every(isValidPricedLine)) {
+      state.setMessage("تحقق من السعر وإجمالي كل صنف قبل إنشاء الطلب.");
+      return;
+    }
 
     await runOrderAction(async () => {
       if (!offlineContext) throw new Error("تعذر تحديد المطعم الحالي.");
@@ -398,6 +406,12 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
 
   function updateStartCartQuantity(index: number, quantity: number) {
     setStartCart((current) => updateLineQuantity(current, index, quantity));
+  }
+
+  function updateStartCartPrice(index: number, value: number, field: "unitPrice" | "total") {
+    setStartCart((current) => current.map((line, lineIndex) => lineIndex === index
+      ? field === "unitPrice" ? withUnitPrice(line, value) : withLineTotal(line, value)
+      : line));
   }
 
   function openStartCartNote(index: number) {
@@ -432,6 +446,10 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
       state.setMessage("لا يمكن حفظ طلب بدون أصناف.");
       return;
     }
+    if (!lines.every(isValidPricedLine)) {
+      state.setMessage("تحقق من السعر وإجمالي كل صنف قبل الحفظ.");
+      return;
+    }
 
     await runOrderAction(async () => {
       if (!offlineContext) throw new Error("تعذر تحديد المطعم الحالي.");
@@ -444,7 +462,7 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
         serviceCharge: orderForm.serviceCharge,
         paymentMethod: orderForm.paymentMethod as PaymentMethod,
         notes: orderForm.notes,
-        items: lines.map((line) => ({ menuItemId: line.menuItemId, quantity: line.quantity, notes: line.notes, modifiers: line.modifiers }))
+        items: lines.map((line) => ({ menuItemId: line.menuItemId, quantity: line.quantity, unitPrice: line.unitPrice, total: line.total, notes: line.notes, modifiers: line.modifiers }))
       });
     }, "تم حفظ التعديلات على الجهاز — بانتظار المزامنة");
   }
@@ -455,6 +473,7 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
       name: item.name,
       quantity: Math.max(1, quantity),
       unitPrice: item.price,
+      total: item.price * Math.max(1, quantity),
       notes,
       modifiers: []
     };
@@ -466,6 +485,12 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
 
   function updateAddCartLine(index: number, quantity: number) {
     setAddCart((current) => updateLineQuantity(current, index, quantity));
+  }
+
+  function updateAddCartPrice(index: number, value: number, field: "unitPrice" | "total") {
+    setAddCart((current) => current.map((line, lineIndex) => lineIndex === index
+      ? field === "unitPrice" ? withUnitPrice(line, value) : withLineTotal(line, value)
+      : line));
   }
 
   function openAddCartNote(index: number) {
@@ -487,11 +512,17 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
   }
 
   function updateLine(index: number, patch: Partial<OrderEditLine>) {
-    setLines((current) => current.map((line, lineIndex) => (lineIndex === index ? { ...line, ...patch, quantity: Math.max(1, patch.quantity ?? line.quantity) } : line)));
+    setLines((current) => current.map((line, lineIndex) => {
+      if (lineIndex !== index) return line;
+      if (patch.quantity !== undefined) return withQuantity({ ...line, ...patch }, patch.quantity);
+      if (patch.unitPrice !== undefined) return withUnitPrice({ ...line, ...patch }, patch.unitPrice);
+      if (patch.total !== undefined) return withLineTotal({ ...line, ...patch }, patch.total);
+      return { ...line, ...patch };
+    }));
   }
 
   function changeLineQuantity(index: number, delta: number) {
-    setLines((current) => current.map((line, lineIndex) => (lineIndex === index ? { ...line, quantity: Math.max(1, line.quantity + delta) } : line)));
+    setLines((current) => current.map((line, lineIndex) => (lineIndex === index ? withQuantity(line, line.quantity + delta) : line)));
   }
 
   function openLineNote(index: number) {
@@ -571,14 +602,32 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
 
   async function completeCurrentOrder() {
     if (!order || lockedOrder) return;
-    const paidAmount = paymentAmountForMethod(completeForm.paymentMethod as PaymentMethod, order.total, completeForm.paidAmount);
-    setPendingCompleteOrder({
-      order,
-      customerName: order.customerName ?? "",
-      paymentMethod: completeForm.paymentMethod as PaymentMethod,
-      paidAmount,
-      cashRegisterId: completeForm.cashRegisterId,
-      note: completeForm.note
+    if (!lines.length || !lines.every(isValidPricedLine)) {
+      state.setMessage("تحقق من السعر وإجمالي كل صنف قبل إنهاء الطلب.");
+      return;
+    }
+    await runOrderAction(async () => {
+      if (!offlineContext) throw new Error("تعذر تحديد المطعم الحالي.");
+      const updatedOrder = await updateLocalOrder(offlineContext, order.id, {
+        name: orderForm.name,
+        tableId: orderForm.tableId,
+        type: orderForm.type as OpsOrder["type"],
+        discount: orderForm.discount,
+        tax: orderForm.tax,
+        serviceCharge: orderForm.serviceCharge,
+        paymentMethod: orderForm.paymentMethod as PaymentMethod,
+        notes: orderForm.notes,
+        items: lines.map((line) => ({ menuItemId: line.menuItemId, quantity: line.quantity, unitPrice: line.unitPrice, total: line.total, notes: line.notes, modifiers: line.modifiers }))
+      });
+      const paidAmount = paymentAmountForMethod(completeForm.paymentMethod as PaymentMethod, updatedOrder.total, completeForm.paidAmount);
+      setPendingCompleteOrder({
+        order: updatedOrder,
+        customerName: updatedOrder.customerName ?? "",
+        paymentMethod: completeForm.paymentMethod as PaymentMethod,
+        paidAmount,
+        cashRegisterId: completeForm.cashRegisterId,
+        note: completeForm.note
+      });
     });
   }
 
@@ -695,8 +744,16 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
                               <QuantityStepper value={line.quantity} onChange={(quantity) => updateLine(index, { quantity })} onStep={(delta) => changeLineQuantity(index, delta)} />
                             )}
                           </td>
-                          <td className="whitespace-nowrap px-2.5 py-2 font-medium text-app-muted">{money(line.unitPrice, state.restaurant?.currency)}</td>
-                          <td className="whitespace-nowrap px-2.5 py-2 font-bold text-app-ink">{money(line.unitPrice * line.quantity, state.restaurant?.currency)}</td>
+                          <td className="whitespace-nowrap px-2.5 py-2 font-medium text-app-muted">
+                            {lockedOrder ? money(line.unitPrice, state.restaurant?.currency) : (
+                              <AppInput aria-label={`سعر الوحدة ${line.name}`} type="number" min="0" step="any" value={line.unitPrice} onChange={(event) => updateLine(index, { unitPrice: Number(event.target.value) })} className="h-9 w-28" />
+                            )}
+                          </td>
+                          <td className="whitespace-nowrap px-2.5 py-2 font-bold text-app-ink">
+                            {lockedOrder ? money(line.total, state.restaurant?.currency) : (
+                              <AppInput aria-label={`إجمالي ${line.name}`} type="number" min="0" step="any" value={line.total} onChange={(event) => updateLine(index, { total: Number(event.target.value) })} className="h-9 w-32 font-bold" />
+                            )}
+                          </td>
                           <td className="px-2.5 py-2">
                             {lockedOrder ? (
                               <span className="block max-w-44 truncate font-medium text-app-muted">{line.notes || "-"}</span>
@@ -864,6 +921,7 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
             actionDisabled={!addCart.length}
             onAction={commitAddCartToOrder}
             onQuantityChange={updateAddCartLine}
+            onPriceChange={updateAddCartPrice}
             onNoteClick={openAddCartNote}
           />
           <div className="min-w-0 rounded-app-lg border border-app-border bg-app-surface-muted p-3 lg:min-h-0 lg:overflow-hidden lg:[direction:rtl]">
@@ -1017,6 +1075,7 @@ export function TableDetailsOpsPage({ tableId }: { tableId: string }) {
               actionLoading={orderActionBusy}
               actionDisabled={!startCart.length || orderActionBusy}
               onQuantityChange={updateStartCartQuantity}
+              onPriceChange={updateStartCartPrice}
               onNoteClick={openStartCartNote}
             />
             <div className="min-w-0 rounded-app-lg border border-app-border bg-app-surface-muted p-3 lg:min-h-0 lg:overflow-hidden lg:[direction:rtl]">
@@ -1250,6 +1309,7 @@ function SelectedItemsPanel({
   actionDisabled,
   onAction,
   onQuantityChange,
+  onPriceChange,
   onNoteClick,
   fillHeight = false
 }: {
@@ -1266,6 +1326,7 @@ function SelectedItemsPanel({
   actionDisabled?: boolean;
   onAction?: () => void;
   onQuantityChange: (index: number, quantity: number) => void;
+  onPriceChange: (index: number, value: number, field: "unitPrice" | "total") => void;
   onNoteClick: (index: number) => void;
   fillHeight?: boolean;
 }) {
@@ -1283,7 +1344,7 @@ function SelectedItemsPanel({
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-bold text-app-ink">{line.name}</p>
-                    <p className="text-app-helper font-semibold text-app-muted">{money(line.unitPrice * line.quantity, currency)}</p>
+                    <p className="text-app-helper font-semibold text-app-muted">{money(line.total, currency)}</p>
                   </div>
                   <button
                     type="button"
@@ -1308,6 +1369,14 @@ function SelectedItemsPanel({
                     <StickyNote className="h-3.5 w-3.5" />
                     <span className="max-w-32 truncate">{line.notes || "+ ملاحظة"}</span>
                   </button>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <AppFieldShell label="سعر الوحدة">
+                    <AppInput aria-label={`سعر الوحدة ${line.name}`} type="number" min="0" step="any" value={line.unitPrice} onChange={(event) => onPriceChange(index, Number(event.target.value), "unitPrice")} className="h-9" />
+                  </AppFieldShell>
+                  <AppFieldShell label="الإجمالي">
+                    <AppInput aria-label={`إجمالي ${line.name}`} type="number" min="0" step="any" value={line.total} onChange={(event) => onPriceChange(index, Number(event.target.value), "total")} className="h-9" />
+                  </AppFieldShell>
                 </div>
               </div>
             ))}
@@ -1906,7 +1975,7 @@ function buildStartOrderCreateInput(form: StartOrderForm, cart: StartCartLine[])
     type: form.type as OpsOrder["type"],
     source: form.source as OpsOrder["source"],
     orderedAt: combineLocalDateTime(form.orderedDate, form.orderedTime),
-    items: cart.map((line) => ({ menuItemId: line.menuItemId, quantity: line.quantity, notes: line.notes, modifiers: line.modifiers })),
+    items: cart.map((line) => ({ menuItemId: line.menuItemId, quantity: line.quantity, unitPrice: line.unitPrice, total: line.total, notes: line.notes, modifiers: line.modifiers })),
     discount: form.discount,
     tax: form.tax,
     serviceCharge: form.serviceCharge,

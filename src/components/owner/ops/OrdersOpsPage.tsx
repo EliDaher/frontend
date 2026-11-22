@@ -39,12 +39,14 @@ import {
 } from "./OpsShared";
 import { OrderReceiptPrintButton } from "./OrderReceiptPrintButton";
 import { option, orderStatuses, orderTypes, paymentMethods, run } from "./OpsPageShared";
+import { isValidPricedLine, withLineTotal, withQuantity, withUnitPrice } from "./order-line-pricing";
 
 type OrderCartLine = {
   menuItemId: string;
   name: string;
   quantity: number;
   unitPrice: number;
+  total: number;
   notes: string;
   modifiers: string[];
 };
@@ -149,7 +151,7 @@ export function OrdersOpsPage() {
     setCart((current) => {
       const existing = current.find((line) => line.menuItemId === item.id && !line.notes);
       if (existing) {
-        return current.map((line) => (line === existing ? { ...line, quantity: line.quantity + 1 } : line));
+        return current.map((line) => (line === existing ? withQuantity(line, line.quantity + 1) : line));
       }
 
       return [
@@ -159,6 +161,7 @@ export function OrdersOpsPage() {
           name: item.name,
           quantity: 1,
           unitPrice: item.price,
+          total: item.price,
           notes: "",
           modifiers: []
         }
@@ -167,7 +170,13 @@ export function OrdersOpsPage() {
   }
 
   function updateCartLine(index: number, patch: Partial<OrderCartLine>) {
-    setCart((current) => current.map((line, lineIndex) => (lineIndex === index ? { ...line, ...patch, quantity: Math.max(1, patch.quantity ?? line.quantity) } : line)));
+    setCart((current) => current.map((line, lineIndex) => {
+      if (lineIndex !== index) return line;
+      if (patch.quantity !== undefined) return withQuantity({ ...line, ...patch }, patch.quantity);
+      if (patch.unitPrice !== undefined) return withUnitPrice({ ...line, ...patch }, patch.unitPrice);
+      if (patch.total !== undefined) return withLineTotal({ ...line, ...patch }, patch.total);
+      return { ...line, ...patch };
+    }));
   }
 
   function removeCartLine(index: number) {
@@ -200,6 +209,10 @@ export function OrdersOpsPage() {
     event.preventDefault();
     if (!cart.length) {
       state.setMessage("أضف صنفًا واحدًا على الأقل إلى الطلب.");
+      return;
+    }
+    if (!cart.every(isValidPricedLine)) {
+      state.setMessage("تحقق من السعر وإجمالي كل صنف قبل إنشاء الطلب.");
       return;
     }
 
@@ -335,7 +348,7 @@ export function OrdersOpsPage() {
     }
   }, [activeItemCategoryId, categoryTabs]);
 
-  const cartSubTotal = cart.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
+  const cartSubTotal = cart.reduce((sum, line) => sum + line.total, 0);
 
   return (
     <OpsShell title="الطلبات" eyebrow="إدارة الطلبات" module="orders" state={state} onRefresh={() => void Promise.all([state.loadRestaurant(), load()])}>
@@ -494,17 +507,25 @@ export function OrdersOpsPage() {
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="font-semibold text-app-ink">{line.name}</p>
-                        <p className="text-app-helper text-app-muted">{money(line.unitPrice * line.quantity, state.restaurant?.currency)}</p>
+                        <p className="text-app-helper text-app-muted">{money(line.total, state.restaurant?.currency)}</p>
                         {state.modules?.inventory && !recipes.some((entry) => entry.menuItemId === line.menuItemId) ? (
                           <p className="mt-1 text-app-helper font-semibold text-app-warning">لا توجد مكونات مخزون مرتبطة بهذا الصنف.</p>
                         ) : null}
                       </div>
                       <AppButton type="button" variant="ghost" size="sm" onClick={() => removeCartLine(index)} className="text-app-danger hover:bg-app-danger-soft">حذف</AppButton>
                     </div>
-                    <div className="grid gap-2 sm:grid-cols-[100px_1fr]">
+                    <div className="grid gap-2 sm:grid-cols-3">
                       <AppFieldShell label="الكمية">
                         <AppInput type="number" min="1" value={line.quantity} onChange={(event) => updateCartLine(index, { quantity: Number(event.target.value) })} />
                       </AppFieldShell>
+                      <AppFieldShell label="سعر الوحدة">
+                        <AppInput type="number" min="0" step="any" value={line.unitPrice} onChange={(event) => updateCartLine(index, { unitPrice: Number(event.target.value) })} />
+                      </AppFieldShell>
+                      <AppFieldShell label="الإجمالي">
+                        <AppInput type="number" min="0" step="any" value={line.total} onChange={(event) => updateCartLine(index, { total: Number(event.target.value) })} />
+                      </AppFieldShell>
+                    </div>
+                    <div className="grid gap-2">
                       <AppFieldShell label="ملاحظة">
                         <AppInput value={line.notes} onChange={(event) => updateCartLine(index, { notes: event.target.value })} />
                       </AppFieldShell>
@@ -1137,6 +1158,8 @@ function buildOrderCreateInput(form: OrderForm, cart: OrderCartLine[]): OrderCre
     items: cart.map((line) => ({
       menuItemId: line.menuItemId,
       quantity: line.quantity,
+      unitPrice: line.unitPrice,
+      total: line.total,
       notes: line.notes,
       modifiers: line.modifiers
     })),

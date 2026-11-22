@@ -38,6 +38,7 @@ describe("table details add-items merge behavior", () => {
     const result = mergeOrderLines([line({ quantity: 3 })], [line({ quantity: 2 })]);
     assert.equal(result.length, 1);
     assert.equal(result[0].quantity, 5);
+    assert.equal(result[0].total, 1500);
   });
 
   it("does not merge different item ids", () => {
@@ -58,6 +59,7 @@ describe("table details add-items merge behavior", () => {
   it("decrements temporary selection quantity", () => {
     const result = updateLineQuantity([line({ quantity: 3 })], 0, 2);
     assert.equal(result[0].quantity, 2);
+    assert.equal(result[0].total, 600);
   });
 
   it("removes temporary selection when quantity reaches zero", () => {

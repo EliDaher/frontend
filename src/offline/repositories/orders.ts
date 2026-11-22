@@ -13,6 +13,8 @@ import type { OfflineContext } from "./tables";
 export type OrderLineInput = {
   menuItemId: string;
   quantity: number;
+  unitPrice?: number;
+  total?: number;
   notes: string;
   modifiers: string[];
 };
@@ -350,7 +352,8 @@ async function hydrateLocalOrderItems(tenantId: string, lines: OrderLineInput[])
     const menuItem = await offlineDb.menuItems.get(line.menuItemId);
     if (!menuItem || menuItem.restaurantId !== tenantId) throw new Error(`الصنف غير موجود محليًا: ${line.menuItemId}`);
     const quantity = numberValue(line.quantity);
-    const unitPrice = numberValue(menuItem.price);
+    const unitPrice = line.unitPrice ?? numberValue(menuItem.price);
+    const total = line.total ?? quantity * unitPrice;
     items.push({
       menuItemId: line.menuItemId,
       name: menuItem.name,
@@ -358,7 +361,7 @@ async function hydrateLocalOrderItems(tenantId: string, lines: OrderLineInput[])
       unitPrice,
       notes: line.notes,
       modifiers: line.modifiers,
-      total: quantity * unitPrice
+      total
     });
   }
   return items;
